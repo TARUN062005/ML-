@@ -1,0 +1,22 @@
+
+# Python related files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+*.pkl
+*.db
+*.sqlite3
+
+# Node.js related files
+node_modules/
+
+# IDE related files
+.vscode/
+.idea/
+
+# OS specific files
+.DS_Store
+Thumbs.db

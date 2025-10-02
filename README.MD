@@ -36,3 +36,8 @@ npm i bcryptjs
 npm install jsonwebtoken
 npm install twilio
 npm i axios
+
+In ML_Model
+open each folder and run pip install -r requirements.txt
+then run the python train_model.py
+then run python app.py

@@ -37,73 +37,63 @@ enum AccountType {
 
 // ----------------- Models -----------------
 model User {
-  id              String         @id @default(auto()) @map("_id") @db.ObjectId
-  role            UserRole       @default(USER)
+  id   String   @id @default(auto()) @map("_id") @db.ObjectId
+  role UserRole @default(USER)
 
-  // Auth fields - NOTE ON NULLABLE UNIQUE FIELDS IN MONGODB:
-  // We removed the inline @unique on email, phone, and social IDs.
-  // In MongoDB, a standard unique index on a nullable field does not allow multiple documents to have 'null'.
-  // By removing the inline @unique, we prevent the "Unique constraint failed" crash when trying to insert a second user
-  // who is missing one of these optional fields. We rely on the application logic (in authController.js)
-  // to prevent new users from registering with existing, non-null emails/phones/social IDs.
-  // For production, you may need to manually configure partial unique (sparse) indexes in MongoDB.
-  email           String?
-  phone           String?
-  password        String?        // hashed password
-  isOtpVerified   Boolean        @default(false) // OTP verified but not fully registered
+  // Auth fields
+  email         String?
+  phone         String?
+  password      String?
+  isOtpVerified Boolean @default(false)
 
-  // Social IDs (optional) - Removed @unique to allow multiple null entries.
-  googleId        String?
-  facebookId      String?
-  twitterId       String?
+  // Social IDs
+  googleId   String?
+  facebookId String?
+  twitterId  String?
 
   // Profile fields
-  name            String?
-  age             Int?
-  gender          Gender?
-  dob             DateTime?
-  profileImage    String?
-  bio             String?
+  name         String?
+  age          Int?
+  gender       Gender?
+  dob          DateTime?
+  profileImage String?
+  bio          String?
 
-  // Linked accounts
-  linkedAccounts  LinkedAccount[]
-
-  // Address relation
-  addresses       Address[]
+  // Relations
+  linkedAccounts LinkedAccount[]
+  addresses      Address[]
+  otps           Otp[]
 
   // Profile completion tracking
-  profileCompleted Boolean       @default(false)
-  firstLogin      Boolean        @default(true)
+  profileCompleted Boolean @default(false)
+  firstLogin       Boolean @default(true)
 
   // Metadata
-  isVerified      Boolean        @default(false) // true only after complete registration
-  isDeleted       Boolean        @default(false) // soft delete flag
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  isVerified Boolean  @default(false)
+  isDeleted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  // OTP relation
-  otps            Otp[]
-
-  // Compound Unique Constraints for email/phone if we want to retain DB-level enforcement
-  // and manage the multiple-nulls problem manually, but for a simple fix, we rely on application logic now.
-  // @@unique([email], name: "email_unique") 
-  // @@unique([phone], name: "phone_unique")
-
+  // ----------------- Back-relations for ML Models -----------------
+  toiEntries   TOIEntry[]
+  koiEntries   KOIEntry[]
+  k2Entries    K2Entry[]
+  customModels CustomModel[]
 }
 
 // ----------------- Linked Account -----------------
 model LinkedAccount {
-  id          String      @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String      @db.ObjectId
-  user        User        @relation(fields: [userId], references: [id])
-  
-  type        AccountType
-  email       String?
-  phone       String?
-  isVerified  Boolean     @default(false)
-  
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  type       AccountType
+  email      String?
+  phone      String?
+  isVerified Boolean     @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([userId, email])
   @@unique([userId, phone])
@@ -111,17 +101,17 @@ model LinkedAccount {
 
 // ----------------- Address -----------------
 model Address {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id])
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
 
-  line1     String
-  line2     String?
-  city      String
-  state     String
-  region    String?
-  country   String   @default("India")
-  pincode   String
+  line1   String
+  line2   String?
+  city    String
+  state   String
+  region  String?
+  country String  @default("India")
+  pincode String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -129,14 +119,68 @@ model Address {
 
 // ----------------- OTP -----------------
 model Otp {
-  id          String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId      String?  @db.ObjectId
-  user        User?    @relation(fields: [userId], references: [id])
+  id     String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId String? @db.ObjectId
+  user   User?   @relation(fields: [userId], references: [id])
 
-  identifier  String   // email or phone used for OTP
-  code        String
-  type        OtpType
-  expiresAt   DateTime
+  identifier String // email or phone used for OTP
+  code       String
+  type       OtpType
+  expiresAt  DateTime
 
-  createdAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+}
+
+// ----------------- ML Models -----------------
+model TOIEntry {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model KOIEntry {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model K2Entry {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CustomModel {
+  id     String @id @default(auto()) @map("_id") @db.ObjectId
+  userId String @db.ObjectId
+  user   User   @relation(fields: [userId], references: [id])
+
+  name      String
+  params    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries CustomModelEntry[]
+}
+
+model CustomModelEntry {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  customModelId String      @db.ObjectId
+  customModel   CustomModel @relation(fields: [customModelId], references: [id])
+
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
