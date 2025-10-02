@@ -1,3 +1,4 @@
+// src/components/common/ProtectedRoutes.jsx
 import React, { useContext } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { AuthContext } from "../../main";
@@ -9,15 +10,14 @@ const ProtectedRoutes = ({ allowedRoles = [] }) => {
     return (
       <div style={loadingStyle}>
         <div style={spinnerStyle}></div>
-        <p>Checking access...</p>
+        <p style={{ color: '#e3f2fd', marginTop: '1rem' }}>Initializing Mission Systems...</p>
       </div>
     );
   }
 
-  // Map route roles to actual user roles
+  // Only user role now
   const routeToUserRoleMap = {
-    'user': 'USER',
-    'other': 'OTHER_USER'
+    'user': 'USER'
   };
 
   // Convert allowedRoles (from routes) to actual user roles
@@ -31,30 +31,30 @@ const ProtectedRoutes = ({ allowedRoles = [] }) => {
   }
 
   if (!isAuthorized) {
-    // Redirect to appropriate dashboard based on user role
-    const userRoleRoute = user.role === 'OTHER_USER' ? 'other' : 'user';
-    return <Navigate to={`/auth/${userRoleRoute}/dashboard`} replace />;
+    // Redirect to user dashboard
+    return <Navigate to="/user/dashboard" replace />;
   }
 
   return <Outlet />;
 };
 
-// Styles remain the same...
+// NASA-themed loading styles
 const loadingStyle = {
-  minHeight: "80vh",
+  minHeight: "100vh",
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
   justifyContent: "center",
-  color: "#374151",
-  fontFamily: "sans-serif",
+  background: "linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%)",
+  color: "#ffffff",
+  fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
 };
 
 const spinnerStyle = {
-  width: "40px",
-  height: "40px",
-  border: "4px solid #ddd",
-  borderTop: "4px solid #2563eb",
+  width: "60px",
+  height: "60px",
+  border: "4px solid rgba(255, 255, 255, 0.3)",
+  borderTop: "4px solid #0f5c6e",
   borderRadius: "50%",
   animation: "spin 1s linear infinite",
 };
