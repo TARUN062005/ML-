@@ -1,49 +1,153 @@
-// src/main.jsx
+// client/src/main.jsx
 import React, { createContext, useState, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App.jsx";
 import axios from "axios";
+import './index.css'
 
-// ----------------- Global Authentication Context -----------------
 export const AuthContext = createContext();
-
-// Create an Axios instance with a base URL
 export const API = axios.create({
   baseURL: import.meta.env.VITE_BACKEND_URL || "http://localhost:5000",
 });
 
+// Enhanced security: Only log in development with sensitive data filtered
+const secureLog = (...args) => {
+  if (import.meta.env.DEV) {
+    // Filter out sensitive data
+    const filteredArgs = args.map(arg => {
+      if (typeof arg === 'string' && (arg.includes('token') || arg.includes('password') || arg.includes('Token'))) {
+        return '[SENSITIVE_DATA]';
+      }
+      return arg;
+    });
+    console.log(...filteredArgs);
+  }
+};
+
+const secureError = (...args) => {
+  if (import.meta.env.DEV) {
+    const filteredArgs = args.map(arg => {
+      if (typeof arg === 'string' && (arg.includes('token') || arg.includes('password') || arg.includes('Token'))) {
+        return '[SENSITIVE_DATA]';
+      }
+      return arg;
+    });
+    console.error(...filteredArgs);
+  }
+};
+
 const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => localStorage.getItem("token"));
+  const [token, setToken] = useState(() => {
+    const storedToken = localStorage.getItem("token");
+    const storedTime = localStorage.getItem("token_time");
+    
+    // Auto-logout if token is older than 24 hours
+    if (storedToken && storedTime) {
+      const tokenAge = Date.now() - parseInt(storedTime);
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      
+      if (tokenAge > maxAge) {
+        secureLog("🔐 Token expired, auto-logout");
+        localStorage.removeItem("token");
+        localStorage.removeItem("token_time");
+        localStorage.removeItem("user");
+        return null;
+      }
+    }
+    
+    return storedToken;
+  });
+  
   const [loading, setLoading] = useState(true);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
 
-  // Function to handle user login and token storage
+  // Enhanced login with timestamp
   const login = (userData, authToken) => {
-    console.log('🔐 Login called with:', { user: userData, token: authToken });
+    secureLog('🔐 Login called');
+    const loginTime = Date.now();
+    
     localStorage.setItem("token", authToken);
-    localStorage.setItem('user', JSON.stringify(userData)); // Store user data
-    setToken(authToken); // This will trigger the useEffect
+    localStorage.setItem("token_time", loginTime.toString());
+    localStorage.setItem('user', JSON.stringify(userData));
+    
+    setToken(authToken);
     setUser(userData);
+    
+    if (userData.firstLogin || !userData.profileCompleted) {
+      setNeedsProfileCompletion(true);
+    }
   };
 
-  // Function to handle user logout and token removal
+  // Enhanced logout
   const logout = () => {
-    console.log("🔒 Logging out: clearing token");
+    secureLog("🔒 Logging out");
     localStorage.removeItem("token");
-    localStorage.removeItem("user"); // Clear user data
+    localStorage.removeItem("token_time");
+    localStorage.removeItem("user");
     setToken(null);
     setUser(null);
+    setNeedsProfileCompletion(false);
   };
 
-  // Use an interceptor to automatically add the Authorization header
-  // to every single request. This is the key fix.
+  const completeProfile = () => {
+    setNeedsProfileCompletion(false);
+    if (user) {
+      const updatedUser = { ...user, firstLogin: false, profileCompleted: true };
+      setUser(updatedUser);
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+    }
+  };
+
+  // Auto-logout after inactivity
   useEffect(() => {
-    // Add a request interceptor
+    let inactivityTimer;
+
+    const resetInactivityTimer = () => {
+      clearTimeout(inactivityTimer);
+      // Auto-logout after 30 minutes of inactivity
+      inactivityTimer = setTimeout(() => {
+        if (token) {
+          secureLog("🕒 Auto-logout due to inactivity");
+          logout();
+        }
+      }, 30 * 60 * 1000); // 30 minutes
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => {
+      document.addEventListener(event, resetInactivityTimer);
+    });
+
+    resetInactivityTimer();
+
+    return () => {
+      clearTimeout(inactivityTimer);
+      events.forEach(event => {
+        document.removeEventListener(event, resetInactivityTimer);
+      });
+    };
+  }, [token]);
+
+  // Enhanced request interceptor
+  useEffect(() => {
     const requestInterceptor = API.interceptors.request.use(
       (config) => {
         const currentToken = localStorage.getItem("token");
-        if (currentToken) {
+        const tokenTime = localStorage.getItem("token_time");
+        
+        // Check token expiration
+        if (currentToken && tokenTime) {
+          const tokenAge = Date.now() - parseInt(tokenTime);
+          const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+          
+          if (tokenAge > maxAge) {
+            secureLog("🔐 Token expired in interceptor");
+            logout();
+            return Promise.reject(new Error("Token expired"));
+          }
+          
           config.headers.Authorization = `Bearer ${currentToken}`;
         }
         return config;
@@ -53,32 +157,62 @@ const AuthProvider = ({ children }) => {
       }
     );
 
-    // Add a response interceptor to handle 401 Unauthorized errors globally
     const responseInterceptor = API.interceptors.response.use(
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          console.log("Caught 401 Unauthorized, automatically logging out.");
+          secureLog("🔐 Caught 401 Unauthorized, logging out");
           logout();
         }
         return Promise.reject(error);
       }
     );
   
-    // Cleanup interceptors on component unmount
     return () => {
       API.interceptors.request.eject(requestInterceptor);
       API.interceptors.response.eject(responseInterceptor);
     };
-  }, []); // Empty dependency array ensures this runs only once
+  }, []);
 
-  // Effect to fetch user profile on initial load or token change
+  // Real-time user state synchronization
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          const userData = JSON.parse(storedUser);
+          setUser(userData);
+        } catch (error) {
+          secureError('❌ Error parsing user data from storage:', error);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Enhanced user profile fetch with security
   useEffect(() => {
     const fetchUserProfile = async () => {
       const storedToken = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
+      const storedTime = localStorage.getItem('token_time');
 
-      console.log('🔍 Auth check:', { token: storedToken, userData: storedUser });
+      secureLog('🔍 Auth check');
+      
+      // Check token expiration
+      if (storedToken && storedTime) {
+        const tokenAge = Date.now() - parseInt(storedTime);
+        const maxAge = 24 * 60 * 60 * 1000;
+        
+        if (tokenAge > maxAge) {
+          secureLog("🔐 Token expired on page load");
+          logout();
+          setLoading(false);
+          return;
+        }
+      }
       
       if (!storedToken) {
         setUser(null);
@@ -89,52 +223,60 @@ const AuthProvider = ({ children }) => {
       try {
         setLoading(true);
         
-        // Try to get user info using the stored user data first
         if (storedUser) {
           try {
             const userData = JSON.parse(storedUser);
-            console.log('✅ Using stored user data:', userData);
+            secureLog('✅ Using stored user data');
             setUser(userData);
+            
+            if (userData.firstLogin || !userData.profileCompleted) {
+              setNeedsProfileCompletion(true);
+            }
+            
             setLoading(false);
-            return; // Exit early if we have stored user data
+            return;
           } catch (parseError) {
-            console.error('❌ Error parsing stored user data:', parseError);
+            secureError('❌ Error parsing stored user data:', parseError);
           }
         }
 
-        // If no stored user data, try to fetch from /user/me endpoint
-        console.log('🔄 Attempting to fetch user profile from /user/me');
+        secureLog('🔄 Attempting to fetch user profile from /user/me');
         const userRes = await API.get("/user/me").catch((error) => {
-          console.log('⚠️ /user/me endpoint not available:', error.message);
+          secureLog('⚠️ /user/me endpoint not available:', error.message);
           return null;
         });
 
         if (userRes?.data) {
-          console.log('✅ Auth verified via /user/me:', userRes.data);
+          secureLog('✅ Auth verified via /user/me');
           const userData = userRes.data.user || userRes.data;
           setUser(userData);
-          // Update localStorage with fresh user data
+          
+          if (userData.firstLogin || !userData.profileCompleted) {
+            setNeedsProfileCompletion(true);
+          }
+          
           localStorage.setItem('user', JSON.stringify(userData));
         } else {
-          console.log('ℹ️ No user data from /user/me, but token is valid');
-          // Token is valid but no user endpoint - create minimal user object
+          secureLog('ℹ️ No user data from /user/me, but token is valid');
           const minimalUser = { 
             role: 'USER', 
             email: 'user@example.com',
-            name: 'User'
+            name: 'User',
+            firstLogin: true,
+            profileCompleted: false
           };
           setUser(minimalUser);
+          setNeedsProfileCompletion(true);
           localStorage.setItem('user', JSON.stringify(minimalUser));
         }
       } catch (error) {
-        console.error("❌ Failed to fetch user profile:", error.message);
-        // Don't logout immediately for network errors
+        secureError("❌ Failed to fetch user profile:", error.message);
         if (storedUser) {
           try {
             const userData = JSON.parse(storedUser);
             setUser(userData);
           } catch (parseError) {
-            console.error('❌ Error parsing stored user data:', parseError);
+            secureError('❌ Error parsing stored user data:', parseError);
           }
         }
       } finally {
@@ -145,7 +287,16 @@ const AuthProvider = ({ children }) => {
     fetchUserProfile();
   }, [token]);
 
-  const authContextValue = { user, token, loading, login, logout, API };
+  const authContextValue = { 
+    user, 
+    token, 
+    loading, 
+    needsProfileCompletion,
+    login, 
+    logout, 
+    completeProfile,
+    API 
+  };
 
   // NASA-themed loading screen
   if (loading) {
@@ -162,7 +313,6 @@ const AuthProvider = ({ children }) => {
         position: "relative",
         overflow: "hidden",
       }}>
-        {/* Animated stars background */}
         <div style={{
           position: "absolute",
           top: 0,
@@ -178,7 +328,6 @@ const AuthProvider = ({ children }) => {
           animation: "twinkle 3s infinite ease-in-out",
         }}></div>
         
-        {/* Rotating planet loader */}
         <div style={{
           width: "80px",
           height: "80px",
@@ -189,7 +338,6 @@ const AuthProvider = ({ children }) => {
           boxShadow: "0 0 30px rgba(255, 109, 0, 0.5)",
           animation: "planetRotate 2s infinite linear",
         }}>
-          {/* Planet craters */}
           <div style={{
             position: "absolute",
             width: "15px",
@@ -254,7 +402,6 @@ const AuthProvider = ({ children }) => {
   );
 };
 
-// Root component for the application
 const Root = () => (
   <BrowserRouter>
     <AuthProvider>

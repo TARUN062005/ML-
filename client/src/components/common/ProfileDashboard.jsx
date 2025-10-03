@@ -1,16 +1,37 @@
-// src/components/common/ProfileDashboard.jsx
 import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { AuthContext, API } from "../../main.jsx";
+import { AuthContext } from "../../main.jsx";
 import DashboardPage from "./DashboardPage.jsx";
 import ProfilePage from "./ProfilePage.jsx";
 import SecurityPage from "./SecurityPage.jsx";
-import { Message, LoadingScreen } from "./components/UIComponents.jsx";
+
+// Message Component (moved from UIComponents)
+const Message = ({ type, message }) => (
+  <div className={`p-4 rounded-lg mb-4 flex items-center ${
+    type === 'success' 
+      ? 'bg-green-900 bg-opacity-50 border border-green-700 text-green-300'
+      : 'bg-red-900 bg-opacity-50 border border-red-700 text-red-300'
+  }`}>
+    <span className="mr-2">{type === 'success' ? '✅' : '⚠️'}</span>
+    {message}
+  </div>
+);
+
+// Loading Screen Component
+const LoadingScreen = ({ message = "Loading..." }) => (
+  <div className="flex items-center justify-center min-h-screen bg-gray-900" style={{ 
+    background: "linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%)" 
+  }}>
+    <div className="text-center">
+      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+      <p className="text-lg text-gray-300">{message}</p>
+    </div>
+  </div>
+);
 
 const ProfileDashboard = () => {
-  const { user, logout, API: contextAPI } = useContext(AuthContext);
+  const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
-  const API = contextAPI || API;
   
   const [activeTab, setActiveTab] = useState("welcome");
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);

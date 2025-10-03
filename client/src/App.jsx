@@ -1,4 +1,4 @@
-// src/App.jsx
+// client/src/App.jsx
 import React, { useContext } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthContext } from "./main.jsx";
@@ -6,16 +6,17 @@ import { AuthContext } from "./main.jsx";
 // Common components
 import Header from "./components/common/header";
 import LandingPage from "./components/common/landingPage";
-import AuthPage from "./components/common/authPage.jsx"; // Fixed typo here
+import AuthPage from "./components/common/authPage.jsx";
 import ProtectedRoutes from "./components/common/ProtectedRoutes.jsx";
 import NotFoundPage from "./components/common/NotFoundPage.jsx";
 
 // Dashboards
 import UserDashboard from "./components/user/userDashboard.jsx";
-import OtherDashboard from "./components/other/otherDashboard.jsx";
+import MLDashboard from "./components/user/MLDashboard.jsx";
+import CustomModelDashboard from "./components/user/CustomModelDashboard.jsx";
 
 const App = () => {
-  const { user } = useContext(AuthContext);
+  const { user, needsProfileCompletion } = useContext(AuthContext);
 
   const appContainerStyle = {
     minHeight: "100vh",
@@ -63,12 +64,12 @@ const App = () => {
             path="/auth/:userType/:mode"
             element={
               user ? (
-                // Redirect logged-in users to dashboard
+                // Redirect based on profile completion status
                 <Navigate
                   to={
-                    user.role === "USER"
-                      ? "/user/dashboard"
-                      : "/other/dashboard"
+                    needsProfileCompletion 
+                      ? "/user/profile" 
+                      : "/user/dashboard"
                   }
                   replace
                 />
@@ -78,16 +79,14 @@ const App = () => {
             }
           />
 
-          {/* Protected: USER */}
+          {/* Protected: USER routes */}
           <Route element={<ProtectedRoutes allowedRoles={["USER"]} />}>
-            <Route path="/user/dashboard" element={<UserDashboard />} />
-            <Route path="/user/profile" element={<UserDashboard />} />
-          </Route>
-
-          {/* Protected: OTHER */}
-          <Route element={<ProtectedRoutes allowedRoles={["OTHER"]} />}>
-            <Route path="/other/dashboard" element={<OtherDashboard />} />
-            <Route path="/other/profile" element={<OtherDashboard />} />
+            <Route path="/user/*" element={<UserDashboard />} />
+            {/* Direct routes for ML models */}
+            <Route path="/user/dashboard/toi" element={<MLDashboard />} />
+            <Route path="/user/dashboard/koi" element={<MLDashboard />} />
+            <Route path="/user/dashboard/k2" element={<MLDashboard />} />
+            <Route path="/user/dashboard/custom/*" element={<CustomModelDashboard />} />
           </Route>
 
           {/* 404 Fallback - NASA Themed */}
@@ -111,11 +110,24 @@ const App = () => {
           
           body {
             overflow-x: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
           }
           
           /* Smooth scrolling */
           html {
             scroll-behavior: smooth;
+          }
+
+          /* Custom utility classes for styling */
+          .bg-gradient-cosmic {
+            background: linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%);
+          }
+          
+          .text-gradient-blue {
+            background: linear-gradient(45deg, #ffffff, #448aff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
           }
         `}
       </style>

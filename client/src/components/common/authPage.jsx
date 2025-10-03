@@ -1,6 +1,7 @@
-// src/components/common/AuthPage.jsx
+// client/src/components/common/authPage.jsx
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../../main.jsx";
+import "../../index.css"; // ADD THIS IMPORT
 
 // Mock router hooks for demonstration
 const useNavigate = () => {
@@ -105,7 +106,7 @@ const validatePassword = (password, confirmPassword) => {
 
 // Main Auth Component
 const AuthPage = () => {
-  const { login, API } = useContext(AuthContext); // Get both login and API from context
+  const { login, API } = useContext(AuthContext);
   const navigate = useNavigate();
   const { userType } = useParams();
 
@@ -128,17 +129,6 @@ const AuthPage = () => {
   const [isSignupMode, setIsSignupMode] = useState(false);
   const [currentStep, setCurrentStep] = useState("signin");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-
-  // NASA theme configuration
-  const nasaTheme = {
-    primaryColor: "bg-blue-600 hover:bg-blue-700",
-    textColor: "text-blue-400",
-    borderColor: "border-blue-400",
-    secondaryBg: "bg-gray-900",
-    focusRing: "focus:ring-blue-500",
-    loadingColor: "#0f5c6e",
-    gradient: "from-blue-900 via-purple-900 to-gray-900"
-  };
 
   // Reset state on mode change
   useEffect(() => {
@@ -255,7 +245,7 @@ const AuthPage = () => {
     setMessage("");
 
     try {
-      const endpoint = "/user"; // Only user endpoint now
+      const endpoint = "/user";
       console.log("🎯 Using endpoint:", endpoint);
       
       // Forgot Password Flow
@@ -568,13 +558,13 @@ const AuthPage = () => {
               <div className="flex flex-col items-center">
                 <div className={`flex h-8 w-8 items-center justify-center rounded-full border-2 shadow-sm ${
                   index <= currentIndex
-                    ? `${nasaTheme.primaryColor} border-transparent text-white`
+                    ? "bg-blue-600 hover:bg-blue-700 border-transparent text-white"
                     : "border-gray-600 bg-gray-700 text-gray-400"
                 } transition-all duration-300`}>
                   {index + 1}
                 </div>
                 <span className={`mt-2 text-xs font-medium ${
-                  index <= currentIndex ? nasaTheme.textColor : "text-gray-400"
+                  index <= currentIndex ? "text-blue-400" : "text-gray-400"
                 }`}>
                   {step.label}
                 </span>
@@ -635,7 +625,6 @@ const AuthPage = () => {
             className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 text-white placeholder-gray-400"
             required
             disabled={isLoading}
-            style={{ color: 'white' }}
           />
         </div>
       );
@@ -656,14 +645,13 @@ const AuthPage = () => {
             maxLength="6"
             required
             disabled={isLoading}
-            style={{ color: 'white' }}
           />
           <div className="text-center mt-3">
             <button
               type="button"
               onClick={handleResendOtp}
               disabled={resendTimer > 0 || isLoading}
-              className={`text-sm ${resendTimer > 0 ? "text-gray-500 cursor-default" : nasaTheme.textColor + " hover:underline"}`}
+              className={`text-sm ${resendTimer > 0 ? "text-gray-500 cursor-default" : "text-blue-400 hover:underline"}`}
             >
               {resendTimer > 0
                 ? `Resend OTP in ${Math.floor(resendTimer / 60)}:${(resendTimer % 60).toString().padStart(2, '0')}`
@@ -690,7 +678,6 @@ const AuthPage = () => {
               className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
               required
               disabled={isLoading}
-              style={{ color: 'white' }}
             />
           </div>
           <div>
@@ -705,7 +692,6 @@ const AuthPage = () => {
               className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
               required
               disabled={isLoading}
-              style={{ color: 'white' }}
             />
             <PasswordValidationHint />
           </div>
@@ -718,7 +704,7 @@ const AuthPage = () => {
     if (isLoading) {
       return (
         <div className="flex items-center justify-center">
-          <PlanetLoading size={24} color={nasaTheme.loadingColor} />
+          <PlanetLoading size={24} color="#0f5c6e" />
           <span className="ml-2">Processing...</span>
         </div>
       );
@@ -812,7 +798,6 @@ const AuthPage = () => {
                     className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white placeholder-gray-400"
                     required
                     disabled={isLoading}
-                    style={{ color: 'white' }}
                   />
                 </div>
               )}
@@ -823,7 +808,7 @@ const AuthPage = () => {
                   <button
                     type="button"
                     onClick={() => setShowForgotPassword(true)}
-                    className={`text-sm font-medium ${nasaTheme.textColor} hover:underline`}
+                    className="text-sm font-medium text-blue-400 hover:underline"
                   >
                     Forgot your password?
                   </button>
@@ -834,9 +819,9 @@ const AuthPage = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className={`w-full py-3 px-4 rounded-lg text-white font-semibold transition-all duration-300 ${
-                  nasaTheme.primaryColor
-                } ${isLoading ? "opacity-60 cursor-not-allowed" : "hover:shadow-lg hover:transform hover:-translate-y-1"}`}
+                className={`w-full py-3 px-4 rounded-lg text-white font-semibold transition-all duration-300 bg-blue-600 hover:bg-blue-700 ${
+                  isLoading ? "opacity-60 cursor-not-allowed" : "hover:shadow-lg hover:transform hover:-translate-y-1"
+                }`}
               >
                 {getButtonText()}
               </button>
@@ -851,7 +836,7 @@ const AuthPage = () => {
                     setIsSignupMode(false);
                     setCurrentStep("signin");
                   }}
-                  className={`text-sm ${nasaTheme.textColor} hover:underline`}
+                  className="text-sm text-blue-400 hover:underline"
                 >
                   ← Back to Sign In
                 </button>
@@ -866,7 +851,7 @@ const AuthPage = () => {
                 </span>
                 <button
                   onClick={() => setIsSignupMode(true)}
-                  className={`ml-1 text-sm font-medium ${nasaTheme.textColor} hover:underline`}
+                  className="ml-1 text-sm font-medium text-blue-400 hover:underline"
                 >
                   Join Mission
                 </button>
@@ -879,7 +864,7 @@ const AuthPage = () => {
                 </span>
                 <button
                   onClick={() => setIsSignupMode(false)}
-                  className={`ml-1 text-sm font-medium ${nasaTheme.textColor} hover:underline`}
+                  className="ml-1 text-sm font-medium text-blue-400 hover:underline"
                 >
                   Sign In
                 </button>
