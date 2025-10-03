@@ -16,8 +16,35 @@ const secureLog = (...args) => {
   if (import.meta.env.DEV) {
     // Filter out sensitive data
     const filteredArgs = args.map(arg => {
-      if (typeof arg === 'string' && (arg.includes('token') || arg.includes('password') || arg.includes('Token'))) {
-        return '[SENSITIVE_DATA]';
+      if (typeof arg === 'string') {
+        // Hide passwords, tokens, and sensitive form data
+        if (arg.includes('password') || arg.includes('Password') || 
+            arg.includes('token') || arg.includes('Token') ||
+            arg.includes('otp') || arg.includes('OTP') ||
+            arg.includes('currentPassword') || arg.includes('newPassword') ||
+            arg.includes('confirmPassword')) {
+          return '[SENSITIVE_DATA]';
+        }
+        // Hide email/phone from logs
+        if (arg.includes('@') || (arg.match(/\d/g) && arg.length >= 10)) {
+          return arg.replace(/(?<=.{3}).(?=.*@)/g, '*').replace(/(?<=.{2})\d(?=\d{2})/g, '*');
+        }
+      }
+      // For objects, recursively filter sensitive data
+      if (typeof arg === 'object' && arg !== null) {
+        const filteredObj = {};
+        for (const [key, value] of Object.entries(arg)) {
+          if (key.toLowerCase().includes('password') || 
+              key.toLowerCase().includes('token') ||
+              key.toLowerCase().includes('otp')) {
+            filteredObj[key] = '[SENSITIVE_DATA]';
+          } else if (typeof value === 'string' && (value.includes('@') || (value.match(/\d/g) && value.length >= 10))) {
+            filteredObj[key] = value.replace(/(?<=.{3}).(?=.*@)/g, '*').replace(/(?<=.{2})\d(?=\d{2})/g, '*');
+          } else {
+            filteredObj[key] = value;
+          }
+        }
+        return filteredObj;
       }
       return arg;
     });
@@ -64,22 +91,40 @@ const AuthProvider = ({ children }) => {
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
 
   // Enhanced login with timestamp
-  const login = (userData, authToken) => {
-    secureLog('🔐 Login called');
-    const loginTime = Date.now();
-    
-    localStorage.setItem("token", authToken);
-    localStorage.setItem("token_time", loginTime.toString());
-    localStorage.setItem('user', JSON.stringify(userData));
-    
-    setToken(authToken);
-    setUser(userData);
-    
-    if (userData.firstLogin || !userData.profileCompleted) {
-      setNeedsProfileCompletion(true);
-    }
-  };
+  // In the main.jsx login function, update this part:
 
+const login = (userData, authToken) => {
+  secureLog('🔐 Login called with user data:', userData);
+  
+  const loginTime = Date.now();
+  
+  localStorage.setItem("token", authToken);
+  localStorage.setItem("token_time", loginTime.toString());
+  localStorage.setItem('user', JSON.stringify(userData));
+  
+  setToken(authToken);
+  setUser(userData);
+  
+  // FIXED: Simplified profile completion check - only check profileCompleted field
+  const requiresProfileCompletion = userData.profileCompleted === false;
+  secureLog('🔍 Profile completion check:', { 
+    profileCompleted: userData.profileCompleted,
+    requiresProfileCompletion 
+  });
+  
+  setNeedsProfileCompletion(requiresProfileCompletion);
+  
+  // FIXED: Force a page reload to ensure clean state
+  if (requiresProfileCompletion) {
+    setTimeout(() => {
+      window.location.href = "/user/profile";
+    }, 100);
+  } else {
+    setTimeout(() => {
+      window.location.href = "/user/dashboard";
+    }, 100);
+  }
+};
   // Enhanced logout
   const logout = () => {
     secureLog("🔒 Logging out");
@@ -92,11 +137,16 @@ const AuthProvider = ({ children }) => {
   };
 
   const completeProfile = () => {
+    secureLog('✅ Profile completion called');
     setNeedsProfileCompletion(false);
     if (user) {
-      const updatedUser = { ...user, firstLogin: false, profileCompleted: true };
+      const updatedUser = { 
+        ...user, 
+        profileCompleted: true 
+      };
       setUser(updatedUser);
       localStorage.setItem('user', JSON.stringify(updatedUser));
+      secureLog('✅ Profile marked as completed:', updatedUser);
     }
   };
 
@@ -182,6 +232,10 @@ const AuthProvider = ({ children }) => {
         try {
           const userData = JSON.parse(storedUser);
           setUser(userData);
+          
+          // Update profile completion status when storage changes
+          const requiresProfileCompletion = userData.profileCompleted === false;
+          setNeedsProfileCompletion(requiresProfileCompletion);
         } catch (error) {
           secureError('❌ Error parsing user data from storage:', error);
         }
@@ -192,14 +246,14 @@ const AuthProvider = ({ children }) => {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // Enhanced user profile fetch with security
+  // Enhanced user profile fetch with security - FIXED PROFILE COMPLETION LOGIC
   useEffect(() => {
     const fetchUserProfile = async () => {
       const storedToken = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
       const storedTime = localStorage.getItem('token_time');
 
-      secureLog('🔍 Auth check');
+      secureLog('🔍 Auth check started');
       
       // Check token expiration
       if (storedToken && storedTime) {
@@ -216,6 +270,7 @@ const AuthProvider = ({ children }) => {
       
       if (!storedToken) {
         setUser(null);
+        setNeedsProfileCompletion(false);
         setLoading(false);
         return;
       }
@@ -226,12 +281,17 @@ const AuthProvider = ({ children }) => {
         if (storedUser) {
           try {
             const userData = JSON.parse(storedUser);
-            secureLog('✅ Using stored user data');
+            secureLog('✅ Using stored user data:', userData);
             setUser(userData);
             
-            if (userData.firstLogin || !userData.profileCompleted) {
-              setNeedsProfileCompletion(true);
-            }
+            // FIXED: Check profile completion status from stored user data
+            const requiresProfileCompletion = userData.profileCompleted === false;
+            secureLog('🔍 Stored user profile completion check:', {
+              profileCompleted: userData.profileCompleted,
+              requiresProfileCompletion
+            });
+            
+            setNeedsProfileCompletion(requiresProfileCompletion);
             
             setLoading(false);
             return;
@@ -251,9 +311,14 @@ const AuthProvider = ({ children }) => {
           const userData = userRes.data.user || userRes.data;
           setUser(userData);
           
-          if (userData.firstLogin || !userData.profileCompleted) {
-            setNeedsProfileCompletion(true);
-          }
+          // FIXED: Check profile completion status from API response
+          const requiresProfileCompletion = userData.profileCompleted === false;
+          secureLog('🔍 API user profile completion check:', {
+            profileCompleted: userData.profileCompleted,
+            requiresProfileCompletion
+          });
+          
+          setNeedsProfileCompletion(requiresProfileCompletion);
           
           localStorage.setItem('user', JSON.stringify(userData));
         } else {
@@ -262,8 +327,7 @@ const AuthProvider = ({ children }) => {
             role: 'USER', 
             email: 'user@example.com',
             name: 'User',
-            firstLogin: true,
-            profileCompleted: false
+            profileCompleted: false // Default to false for new users
           };
           setUser(minimalUser);
           setNeedsProfileCompletion(true);
@@ -275,6 +339,10 @@ const AuthProvider = ({ children }) => {
           try {
             const userData = JSON.parse(storedUser);
             setUser(userData);
+            
+            // Check profile completion status even on error
+            const requiresProfileCompletion = userData.profileCompleted === false;
+            setNeedsProfileCompletion(requiresProfileCompletion);
           } catch (parseError) {
             secureError('❌ Error parsing stored user data:', parseError);
           }

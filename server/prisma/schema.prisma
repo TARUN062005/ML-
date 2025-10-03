@@ -35,6 +35,12 @@ enum AccountType {
   SECONDARY
 }
 
+// Add this new enum for linked account status
+enum LinkedAccountStatus {
+  PENDING
+  VERIFIED
+}
+
 // ----------------- Models -----------------
 model User {
   id   String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -90,7 +96,10 @@ model LinkedAccount {
   type       AccountType
   email      String?
   phone      String?
+  identifier String? // Add this field if you want to use it
   isVerified Boolean     @default(false)
+  status     LinkedAccountStatus @default(PENDING)
+  verifiedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

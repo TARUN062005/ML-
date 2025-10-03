@@ -1,6 +1,6 @@
 // src/components/user/userDashboard.jsx
-import React, { useState, useContext } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import React, { useState, useContext, useEffect } from "react";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthContext } from "../../main.jsx";
 import DashboardPage from "../common/DashboardPage";
 import ProfilePage from "../common/ProfilePage";
@@ -10,8 +10,32 @@ import CustomModelDashboard from "./CustomModelDashboard.jsx";
 
 const UserDashboard = () => {
   const { user, needsProfileCompletion, completeProfile } = useContext(AuthContext);
+  const navigate = useNavigate();
+  const location = useLocation();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [redirecting, setRedirecting] = useState(false);
+
+  console.log('🔍 UserDashboard - Profile completion status:', {
+    needsProfileCompletion,
+    user: user ? { 
+      name: user.name, 
+      profileCompleted: user.profileCompleted 
+    } : 'No user',
+    currentPath: location.pathname
+  });
+
+  // FIXED: Better redirect logic with protection against loops
+  useEffect(() => {
+    if (needsProfileCompletion && user && location.pathname !== '/user/profile') {
+      console.log('🔄 Auto-redirecting to profile completion page');
+      setRedirecting(true);
+      // Use setTimeout to avoid state update during render
+      setTimeout(() => {
+        navigate("/user/profile", { replace: true });
+      }, 100);
+    }
+  }, [needsProfileCompletion, user, navigate, location.pathname]);
 
   const handleMessage = (msg) => {
     setMessage(msg);
@@ -24,13 +48,55 @@ const UserDashboard = () => {
   };
 
   const handleProfileComplete = () => {
+    console.log('✅ Profile completion triggered in UserDashboard');
     completeProfile();
     handleMessage("Profile completed successfully! Welcome to your dashboard.");
+    // Navigate to dashboard after profile completion
+    setTimeout(() => {
+      navigate("/user/dashboard", { replace: true });
+    }, 1500);
   };
 
-  // If profile needs completion, redirect to profile page
-  if (needsProfileCompletion) {
-    return <Navigate to="/user/profile" replace />;
+  // FIXED: Show loading while checking redirect - only if we're actually redirecting
+  if (redirecting && needsProfileCompletion) {
+    return (
+      <div style={{ 
+        minHeight: "100vh", 
+        background: "linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative" 
+      }}>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-white text-lg">Redirecting to profile setup...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // FIXED: If we're on profile page and profile needs completion, don't redirect
+  if (needsProfileCompletion && location.pathname === '/user/profile') {
+    console.log('✅ On profile page, showing profile content');
+    // Continue to show the profile page
+  } else if (needsProfileCompletion) {
+    // If we're not on profile page and profile needs completion, show loading
+    return (
+      <div style={{ 
+        minHeight: "100vh", 
+        background: "linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative" 
+      }}>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-white text-lg">Setting up your mission profile...</p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -1,7 +1,7 @@
 // client/src/components/common/authPage.jsx
 import React, { useState, useEffect, useContext } from "react";
 import { AuthContext } from "../../main.jsx";
-import "../../index.css"; // ADD THIS IMPORT
+import "../../index.css";
 
 // Mock router hooks for demonstration
 const useNavigate = () => {
@@ -12,7 +12,6 @@ const useNavigate = () => {
 };
 
 const useParams = () => { 
-  // Extract userType from URL path
   const path = window.location.pathname;
   if (path.includes('/other/')) return { userType: 'other' };
   return { userType: 'user' };
@@ -70,11 +69,11 @@ const SocialButton = ({ provider, onClick, isLoading }) => {
   const getIcon = () => {
     switch(provider) {
       case 'Google':
-        return '🔍'; // Magnifying glass for search/exoplanet discovery
+        return '🔍';
       case 'Facebook':
-        return '🌌'; // Galaxy
+        return '🌌';
       case 'Twitter':
-        return '🚀'; // Rocket
+        return '🚀';
       default:
         return '⭐';
     }
@@ -182,7 +181,6 @@ const AuthPage = () => {
       [field]: value
     }));
 
-    // Clear error when user starts typing
     if (error) {
       setError("");
     }
@@ -291,14 +289,24 @@ const AuthPage = () => {
           };
           console.log("📤 Sending reset payload:", payload);
           
-          await API.post(`${endpoint}/reset-password`, payload);
+          const response = await API.post(`${endpoint}/reset-password`, payload);
           
-          setMessage("Password reset successfully!");
-          setTimeout(() => {
-            setShowForgotPassword(false);
-            setIsSignupMode(false);
-            setCurrentStep("signin");
-          }, 2000);
+          if (response.data.success) {
+            setMessage("Password reset successfully! Please login with your new password.");
+            setTimeout(() => {
+              setShowForgotPassword(false);
+              setIsSignupMode(false);
+              setCurrentStep("signin");
+              // Clear form data
+              setFormData({
+                email: "",
+                phone: "",
+                password: "",
+                confirmPassword: "",
+                otp: ""
+              });
+            }, 2000);
+          }
         }
         return;
       }
@@ -385,8 +393,21 @@ const AuthPage = () => {
     setMessage(res.message);
     
     if (res.success) {
-      // Try to auto-login after successful registration
-      await handleAutoLogin();
+      // FIXED: Don't auto-login, redirect to login page
+      setMessage("Registration successful! Please login with your credentials.");
+      setTimeout(() => {
+        setIsSignupMode(false);
+        setShowForgotPassword(false);
+        setCurrentStep("signin");
+        // Clear form data
+        setFormData({
+          email: "",
+          phone: "",
+          password: "",
+          confirmPassword: "",
+          otp: ""
+        });
+      }, 2000);
     }
   };
 
@@ -406,52 +427,16 @@ const AuthPage = () => {
     if (res.success && res.token && res.user) {
       login(res.user, res.token);
       
-      console.log("🎯 Login successful, navigating to dashboard");
+      console.log("🎯 Login successful, checking profile status:", {
+        firstLogin: res.user.firstLogin,
+        profileCompleted: res.user.profileCompleted,
+        requiresProfile: res.requiresProfile
+      });
       
-      // Navigate to user dashboard
-      navigate("/user/dashboard", { replace: true });
+      // The navigation will be handled by the AuthContext and App.jsx routing
+      // based on the user's profile completion status
     } else {
       setError("Login failed. Please check your credentials.");
-    }
-  };
-
-  const handleAutoLogin = async () => {
-    const endpoint = "/user";
-    const identifier = formData.email || formData.phone;
-    
-    // Only attempt auto-login if we have credentials
-    if (!identifier || !formData.password) {
-      setMessage("Registration successful! Please sign in with your credentials.");
-      setIsSignupMode(false);
-      setShowForgotPassword(false);
-      setCurrentStep("signin");
-      return;
-    }
-
-    try {
-      const payload = {
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        password: formData.password,
-      };
-      
-      console.log("🔄 Attempting auto-login with:", payload);
-      
-      const response = await API.post(`${endpoint}/login`, payload);
-      const loginRes = response.data;
-
-      if (loginRes.success && loginRes.token && loginRes.user) {
-        login(loginRes.user, loginRes.token);
-        
-        console.log("🎯 Auto-login successful, navigating to dashboard");
-        navigate("/user/dashboard", { replace: true });
-      }
-    } catch (loginErr) {
-      console.error("Auto-login failed:", loginErr);
-      setMessage("Registration successful! Please sign in with your credentials.");
-      setIsSignupMode(false);
-      setShowForgotPassword(false);
-      setCurrentStep("signin");
     }
   };
 
@@ -716,7 +701,7 @@ const AuthPage = () => {
       return "Send Reset Code";
     }
     if (isSignupMode) {
-      if (currentStep === "set_password") return "Launch Mission";
+      if (currentStep === "set_password") return "Complete Registration";
       if (currentStep === "otp_verify") return "Verify Account";
       return "Begin Journey";
     }

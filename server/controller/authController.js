@@ -326,7 +326,7 @@ const completeRegistration = async (req, res) => {
       });
     }
 
-    if (password !== confirmPassword) {
+    if (password && password !== confirmPassword) {
       return res.status(400).json({
         success: false,
         message: "Passwords do not match"
@@ -357,11 +357,12 @@ const completeRegistration = async (req, res) => {
 
     const hashedPassword = password ? await bcrypt.hash(password, 10) : undefined;
 
-    // Check if profile is complete
+    // FIXED: Simplified profile completion logic
     const isProfileComplete = !!(name && age && gender);
 
     const updateData = {
       isVerified: true,
+      // FIXED: Always set firstLogin to false after registration completion
       firstLogin: false,
       profileCompleted: isProfileComplete,
       ...(name && { name }),
@@ -382,7 +383,7 @@ const completeRegistration = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: isProfileComplete ? "Registration completed successfully!" : "Welcome! Please complete your profile for better experience.",
+      message: isProfileComplete ? "Registration completed successfully!" : "Basic registration complete. Please complete your profile for better experience.",
       user: userWithoutPassword,
       requiresProfile: !isProfileComplete
     });
@@ -395,10 +396,10 @@ const completeRegistration = async (req, res) => {
     });
   }
 };
-
 /**
  * Login with email/phone + password
  */
+// In your userController.js - Fix the loginUser function
 const loginUser = async (req, res, role) => {
   try {
     const { email, phone, password } = req.body;
@@ -448,12 +449,17 @@ const loginUser = async (req, res, role) => {
       });
     }
 
-    // Update firstLogin status if it's the first login
+    // FIXED: Simplified profile completion check
+    const requiresProfile = !user.profileCompleted;
+
+    // Update firstLogin status if it's still true
     if (user.firstLogin) {
       await prisma.user.update({
         where: { id: user.id },
         data: { firstLogin: false }
       });
+      // Update the user object for response
+      user.firstLogin = false;
     }
 
     const token = generateToken(user);
@@ -464,7 +470,7 @@ const loginUser = async (req, res, role) => {
       message: "Login successful!",
       token,
       user: userWithoutPassword,
-      requiresProfile: !user.profileCompleted && user.firstLogin
+      requiresProfile: requiresProfile
     });
   } catch (error) {
     console.error(`❌ Login error (${role}):`, error.message);
@@ -605,7 +611,6 @@ const resetPassword = async (req, res) => {
     });
   }
 };
-
 /**
  * Link additional account (email/phone)
  */
@@ -617,79 +622,47 @@ const linkAccount = async (req, res) => {
     if (!email && !phone) {
       return res.status(400).json({
         success: false,
-        message: "Email or phone is required to link account."
-      });
-    }
-
-    if (email && !validateEmail(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid email format"
-      });
-    }
-
-    if (phone && !validatePhone(phone)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid phone format"
+        message: "Either email or phone is required"
       });
     }
 
     const identifier = email || phone;
 
-    // Check if identifier is already used as primary
-    const existingPrimary = await prisma.user.findFirst({
+    // Check if already linked - use isVerified instead of status
+    const existingAccount = await prisma.linkedAccount.findFirst({
       where: {
-        OR: [
-          email ? { email } : undefined,
-          phone ? { phone } : undefined,
-        ].filter(Boolean),
-        isDeleted: false,
-        id: { not: userId }
+        OR: [{ email }, { phone }],
+        userId,
+        isVerified: true // Use isVerified instead of status
       }
     });
 
-    if (existingPrimary) {
-      return res.status(409).json({
+    if (existingAccount) {
+      return res.status(400).json({
         success: false,
-        message: "This email/phone is already used as primary account by another user."
+        message: "Account already linked"
       });
     }
 
-    // Check if already linked
-    const existingLink = await prisma.linkedAccount.findFirst({
-      where: {
-        userId,
-        OR: [
-          email ? { email } : undefined,
-          phone ? { phone } : undefined,
-        ].filter(Boolean)
-      }
-    });
-
-    if (existingLink) {
-      return res.status(409).json({
-        success: false,
-        message: "This account is already linked."
-      });
-    }
-
-    // Create linked account
-    const linkedAccount = await prisma.linkedAccount.create({
-      data: {
-        userId,
-        type: "SECONDARY",
-        ...(email && { email }),
-        ...(phone && { phone })
-      }
-    });
-
-    // Send verification OTP
+    // Generate OTP
     const otp = generateOTP();
     const expiresAt = getOTPExpiry();
 
     await clearOldOTPs(identifier);
     
+    // Create pending linked account - REMOVE THE IDENTIFIER FIELD
+    const linkedAccount = await prisma.linkedAccount.create({
+      data: {
+        userId,
+        // Remove this line: identifier: identifier,
+        email: email || null,
+        phone: phone || null,
+        type: email ? 'EMAIL' : 'PHONE',
+        status: 'PENDING'
+      }
+    });
+
+    // Create OTP
     await prisma.otp.create({
       data: {
         userId,
@@ -700,13 +673,12 @@ const linkAccount = async (req, res) => {
       },
     });
 
-    await sendOTPToUser(identifier, otp, "Account Linking Verification");
+    await sendOTPToUser(identifier, otp, "Account Linking");
 
     res.status(200).json({
       success: true,
-      message: "Verification OTP sent to linked account.",
-      linkedAccountId: linkedAccount.id,
-      identifier: maskIdentifier(identifier)
+      message: "OTP sent for account linking verification",
+      linkedAccountId: linkedAccount.id // Send back the ID
     });
   } catch (error) {
     console.error("❌ Link account error:", error.message);
@@ -717,41 +689,42 @@ const linkAccount = async (req, res) => {
     });
   }
 };
-
 /**
  * Verify linked account
  */
 const verifyLinkedAccount = async (req, res) => {
   try {
-    const { linkedAccountId, otp } = req.body;
+    const { email, phone, otp, linkedAccountId } = req.body;
     const userId = req.user.id;
 
-    if (!linkedAccountId || !otp) {
+    if (!otp) {
       return res.status(400).json({
         success: false,
-        message: "Linked account ID and OTP are required."
+        message: "OTP is required"
       });
     }
 
+    // Find the pending linked account
+    const identifier = email || phone;
     const linkedAccount = await prisma.linkedAccount.findFirst({
       where: {
-        id: linkedAccountId,
+        OR: [{ email }, { phone }],
         userId,
-        isVerified: false
+        status: 'PENDING' // Only verify pending accounts
       }
     });
 
     if (!linkedAccount) {
       return res.status(404).json({
         success: false,
-        message: "Linked account not found or already verified."
+        message: "Pending linked account not found"
       });
     }
 
-    const identifier = linkedAccount.email || linkedAccount.phone;
+    // Verify OTP
     const otpRecord = await prisma.otp.findFirst({
       where: { 
-        identifier, 
+        identifier,
         code: otp, 
         type: "ACCOUNT_LINKING",
         expiresAt: { gt: new Date() } 
@@ -761,21 +734,28 @@ const verifyLinkedAccount = async (req, res) => {
     if (!otpRecord) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or expired OTP."
+        message: "Invalid or expired OTP"
       });
     }
 
-    // Verify the linked account
-    await prisma.linkedAccount.update({
-      where: { id: linkedAccountId },
-      data: { isVerified: true }
-    });
+    await prisma.$transaction(async (tx) => {
+      // Update linked account status to verified
+      await tx.linkedAccount.update({
+        where: { id: linkedAccount.id },
+        data: { 
+          status: 'VERIFIED',
+          isVerified: true, // Also set isVerified to true
+          verifiedAt: new Date()
+        }
+      });
 
-    await prisma.otp.delete({ where: { id: otpRecord.id } });
+      // Delete used OTP
+      await tx.otp.delete({ where: { id: otpRecord.id } });
+    });
 
     res.status(200).json({
       success: true,
-      message: "Account linked successfully! You can now login using this account."
+      message: "Account linked successfully!"
     });
   } catch (error) {
     console.error("❌ Verify linked account error:", error.message);
@@ -786,7 +766,6 @@ const verifyLinkedAccount = async (req, res) => {
     });
   }
 };
-
 /**
  * Make linked account primary
  */

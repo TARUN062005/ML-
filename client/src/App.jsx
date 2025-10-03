@@ -64,7 +64,7 @@ const App = () => {
             path="/auth/:userType/:mode"
             element={
               user ? (
-                // Redirect based on profile completion status
+                // FIXED: Redirect based on profile completion status
                 <Navigate
                   to={
                     needsProfileCompletion 

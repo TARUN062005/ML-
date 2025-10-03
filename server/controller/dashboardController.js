@@ -190,7 +190,6 @@ const updateProfile = async (req, res) => {
     });
   }
 };
-
 /**
  * Get linked accounts
  */
@@ -214,7 +213,6 @@ const getLinkedAccounts = async (req, res) => {
     });
   }
 };
-
 /**
  * Remove linked account
  */
@@ -422,6 +420,9 @@ const deleteAccount = async (req, res) => {
     }
 
     await prisma.$transaction(async (tx) => {
+      // Delete the OTP record FIRST before other operations
+      await tx.otp.delete({ where: { id: otpRecord.id } });
+      
       // Delete all user data
       await tx.otp.deleteMany({ where: { userId } });
       await tx.address.deleteMany({ where: { userId } });
@@ -432,9 +433,6 @@ const deleteAccount = async (req, res) => {
         where: { id: userId },
         data: { isDeleted: true },
       });
-
-      // Delete used OTP
-      await tx.otp.delete({ where: { id: otpRecord.id } });
     });
 
     return res.status(200).json({
