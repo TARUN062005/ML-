@@ -11,6 +11,14 @@ const DashboardPage = ({ user, showDetection = false }) => {
 
   useEffect(() => {
     fetchDashboardStats();
+    
+    // Listen for storage events to refresh data when user profile updates
+    const handleStorageChange = () => {
+      fetchDashboardStats();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const fetchDashboardStats = async () => {

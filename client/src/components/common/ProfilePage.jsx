@@ -4,7 +4,7 @@ import { AuthContext } from "../../main.jsx";
 import { useNavigate } from "react-router-dom";
 
 const ProfilePage = ({ user, needsProfileCompletion, onMessage, onError, onProfileComplete }) => {
-  const { API, completeProfile } = useContext(AuthContext);
+  const { API, completeProfile, login } = useContext(AuthContext);
   const navigate = useNavigate();
   const [userData, setUserData] = useState(user);
   const [loading, setLoading] = useState(false);
@@ -22,48 +22,54 @@ const ProfilePage = ({ user, needsProfileCompletion, onMessage, onError, onProfi
     }
   }, [user, needsProfileCompletion]);
 
-  // In the updateProfile function of ProfilePage.jsx, update this part:
-
-const updateProfile = async (updatedData) => {
-  setLoading(true);
-  setMessage("");
-  try {
-    const response = await API.put("/user/profile", updatedData);
-    const updatedUser = response.data.user || response.data;
-    
-    // Update state immediately
-    setUserData(updatedUser);
-    
-    // Update localStorage immediately
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-    
-    // Trigger storage event to update other components
-    window.dispatchEvent(new Event('storage'));
-    
-    const successMsg = "Profile updated successfully! ✅";
-    setMessage(successMsg);
-    onMessage(successMsg);
-    
-    // If this was first-time setup, mark as complete
-    if (needsProfileCompletion) {
-      completeProfile();
-      setTimeout(() => {
+  const updateProfile = async (updatedData) => {
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await API.put("/user/profile", updatedData);
+      const updatedUser = response.data.user || response.data;
+      
+      // FIXED: Get current token to maintain login state
+      const currentToken = localStorage.getItem("token");
+      
+      // Update state immediately with complete user data
+      setUserData(updatedUser);
+      
+      // FIXED: Update localStorage with complete user data
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      
+      // FIXED: Update AuthContext state by calling login again with updated data
+      if (currentToken) {
+        login(updatedUser, currentToken);
+      }
+      
+      // FIXED: Trigger storage event to update all components
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'user',
+        newValue: JSON.stringify(updatedUser)
+      }));
+      
+      const successMsg = "Profile updated successfully! ✅";
+      setMessage(successMsg);
+      onMessage(successMsg);
+      
+      // If this was first-time setup, mark as complete
+      if (needsProfileCompletion) {
+        completeProfile();
+        // FIXED: Removed automatic redirect - stay on profile page
         onProfileComplete();
-        // FIXED: Use window.location for more reliable redirect
-        window.location.href = "/user/dashboard";
-      }, 1500);
+      }
+      
+      setIsEditing(false);
+      
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || "Failed to update profile";
+      setMessage(errorMsg);
+      onError(errorMsg);
+    } finally {
+      setLoading(false);
     }
-    
-    setIsEditing(false);
-    
-  } catch (error) {
-    const errorMsg = error.response?.data?.message || "Failed to update profile";
-    setMessage(errorMsg);
-    onError(errorMsg);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   // Show forced profile completion for first-time users
   if (needsProfileCompletion && !isEditing) {

@@ -611,6 +611,8 @@ const resetPassword = async (req, res) => {
     });
   }
 };
+// In your authController.js - Fix the linkAccount function
+
 /**
  * Link additional account (email/phone)
  */
@@ -650,14 +652,13 @@ const linkAccount = async (req, res) => {
 
     await clearOldOTPs(identifier);
     
-    // Create pending linked account - REMOVE THE IDENTIFIER FIELD
+    // FIXED: Use proper enum values for type (PRIMARY/SECONDARY)
     const linkedAccount = await prisma.linkedAccount.create({
       data: {
         userId,
-        // Remove this line: identifier: identifier,
         email: email || null,
         phone: phone || null,
-        type: email ? 'EMAIL' : 'PHONE',
+        type: 'SECONDARY', // FIXED: Use 'SECONDARY' instead of 'EMAIL'
         status: 'PENDING'
       }
     });

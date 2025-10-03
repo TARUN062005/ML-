@@ -41,7 +41,7 @@ const ProfileDashboard = () => {
 
   // Check if profile needs completion (first-time setup)
   const needsProfileCompletion = user?.firstLogin && !user?.profileCompleted;
-
+  
   useEffect(() => {
     if (user) {
       setLoading(false);
@@ -52,6 +52,24 @@ const ProfileDashboard = () => {
       }
     }
   }, [user, needsProfileCompletion]);
+
+  // Add real-time user updates
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const storedUser = localStorage.getItem('user');
+      if (storedUser) {
+        try {
+          const userData = JSON.parse(storedUser);
+          // User data will be updated via AuthContext, but we can force re-render if needed
+        } catch (error) {
+          console.error('Error parsing user data:', error);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const clearMessages = () => {
     setMessage("");

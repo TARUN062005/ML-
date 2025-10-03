@@ -1,3 +1,4 @@
+// src/components/common/SecurityPage.jsx
 import React, { useState, useContext, useEffect } from "react";
 import { AuthContext } from "../../main.jsx";
 import { useNavigate } from "react-router-dom";
@@ -59,9 +60,17 @@ const SecurityPage = ({ user, onMessage, onError }) => {
     }
   }, [resendTimer]);
 
-  // Load linked accounts
+  // Load linked accounts with real-time updates
   useEffect(() => {
     fetchLinkedAccounts();
+    
+    // Listen for storage events to refresh linked accounts
+    const handleStorageChange = () => {
+      fetchLinkedAccounts();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const fetchLinkedAccounts = async () => {
@@ -212,7 +221,8 @@ const SecurityPage = ({ user, onMessage, onError }) => {
       const response = await API.delete(`/user/linked-accounts/${linkedAccountId}`);
       if (response.data.success) {
         onMessage("Linked account removed successfully.");
-        fetchLinkedAccounts(); // Refresh the list
+        // Update state immediately without refetching
+        setLinkedAccounts(prev => prev.filter(account => account.id !== linkedAccountId));
       } else {
         onError("Failed to remove linked account.");
       }
@@ -288,6 +298,7 @@ const SecurityPage = ({ user, onMessage, onError }) => {
         setLinkIdentifier("");
         setLinkRequiresOtp(false);
         setLinkedAccountId(null);
+        // Update linked accounts immediately
         fetchLinkedAccounts();
       } else {
         onError(response.data.message || "Failed to verify account linking.");
@@ -315,7 +326,13 @@ const SecurityPage = ({ user, onMessage, onError }) => {
 
       if (response.data.success) {
         onMessage("Primary account updated successfully!");
-        fetchLinkedAccounts(); // Refresh the list
+        // Update state immediately
+        setLinkedAccounts(prev => 
+          prev.map(account => ({
+            ...account,
+            isPrimary: account.id === linkedAccountId
+          }))
+        );
       } else {
         onError("Failed to set account as primary.");
       }

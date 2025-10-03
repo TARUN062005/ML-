@@ -122,6 +122,30 @@ const getProfile = async (req, res) => {
 };
 
 /**
+ * Get linked accounts
+ */
+const getLinkedAccounts = async (req, res) => {
+  try {
+    const linkedAccounts = await prisma.linkedAccount.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.status(200).json({
+      success: true,
+      linkedAccounts
+    });
+  } catch (error) {
+    console.error("❌ Get linked accounts error:", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching linked accounts",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
  * Update user profile (partial updates supported)
  */
 const updateProfile = async (req, res) => {
@@ -139,11 +163,12 @@ const updateProfile = async (req, res) => {
     if (profileImage !== undefined) dataToUpdate.profileImage = profileImage;
     if (bio !== undefined) dataToUpdate.bio = bio;
 
-    // Check if profile is now complete
+    // Check if profile is now complete (simplified logic)
     const user = await prisma.user.findUnique({ where: { id: userId } });
+    
+    // FIXED: Simplified profile completion - only require name and email
     const isProfileComplete = !!(dataToUpdate.name || user.name) && 
-                              !!(dataToUpdate.age || user.age) && 
-                              !!(dataToUpdate.gender || user.gender);
+                              !!(user.email); // Only check existing email, don't update email here
 
     if (isProfileComplete) {
       dataToUpdate.profileCompleted = true;
@@ -190,29 +215,7 @@ const updateProfile = async (req, res) => {
     });
   }
 };
-/**
- * Get linked accounts
- */
-const getLinkedAccounts = async (req, res) => {
-  try {
-    const linkedAccounts = await prisma.linkedAccount.findMany({
-      where: { userId: req.user.id },
-      orderBy: { createdAt: 'desc' }
-    });
 
-    res.status(200).json({
-      success: true,
-      linkedAccounts
-    });
-  } catch (error) {
-    console.error("❌ Get linked accounts error:", error.message);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error while fetching linked accounts",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
 /**
  * Remove linked account
  */
@@ -452,8 +455,8 @@ const deleteAccount = async (req, res) => {
 module.exports = {
   sendOtpForOperation,
   getProfile,
+  getLinkedAccounts, // ADDED: This was missing
   updateProfile,
-  getLinkedAccounts,
   removeLinkedAccount,
   changePassword,
   requestAccountDeletion,
