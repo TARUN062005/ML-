@@ -12,7 +12,6 @@ const DashboardPage = ({ user, showDetection = false }) => {
   useEffect(() => {
     fetchDashboardStats();
     
-    // Listen for storage events to refresh data when user profile updates
     const handleStorageChange = () => {
       fetchDashboardStats();
     };
@@ -27,7 +26,6 @@ const DashboardPage = ({ user, showDetection = false }) => {
       setDashboardStats(response.data.data);
     } catch (error) {
       console.error("Failed to fetch dashboard stats:", error);
-      // Set default stats if API fails
       setDashboardStats({
         counts: {
           toi: 0,
@@ -117,9 +115,24 @@ const DashboardPage = ({ user, showDetection = false }) => {
             icon="🔭"
             color="blue"
             actions={[
-              { label: "TOI Model", path: "/user/dashboard/toi" },
-              { label: "KOI Model", path: "/user/dashboard/koi" },
-              { label: "K2 Model", path: "/user/dashboard/k2" }
+              { 
+                label: "TOI Model", 
+                path: "/user/dashboard/toi", 
+                icon: "🪐", 
+                description: "TOI Mission Data" 
+              },
+              { 
+                label: "KOI Model", 
+                path: "/user/dashboard/koi", 
+                icon: "🌟", 
+                description: "Kepler Mission Data" 
+              },
+              { 
+                label: "K2 Model", 
+                path: "/user/dashboard/k2", 
+                icon: "🚀", 
+                description: "K2 Mission Data" 
+              }
             ]}
             onNavigate={handleNavigation}
           />
@@ -129,8 +142,18 @@ const DashboardPage = ({ user, showDetection = false }) => {
             icon="🧠"
             color="purple"
             actions={[
-              { label: "Train Model", path: "/user/dashboard/custom/train" },
-              { label: "My Models", path: "/user/dashboard/custom/models" }
+              { 
+                label: "Train Model", 
+                path: "/user/dashboard/custom/train", 
+                icon: "⚡", 
+                description: "Train new model" 
+              },
+              { 
+                label: "My Models", 
+                path: "/user/dashboard/custom/models", 
+                icon: "📊", 
+                description: "View your models" 
+              }
             ]}
             onNavigate={handleNavigation}
           />
@@ -140,7 +163,7 @@ const DashboardPage = ({ user, showDetection = false }) => {
         <RecentActivity predictions={dashboardStats?.recentPredictions} />
       </div>
 
-      <style jsx>{`
+      <style>{`
         @keyframes twinkle {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 1; }
@@ -190,10 +213,16 @@ const QuickActionCard = ({ title, description, icon, color, actions, onNavigate 
           <button
             key={index}
             onClick={() => onNavigate(action.path)}
-            className={`w-full bg-gradient-to-r ${colorClasses[color]} text-white py-3 px-4 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 text-left flex items-center justify-between`}
+            className={`w-full bg-gradient-to-r ${colorClasses[color]} text-white py-3 px-4 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 text-left flex items-center justify-between group`}
           >
-            <span>{action.label}</span>
-            <span>→</span>
+            <div className="flex items-center space-x-3">
+              <span className="text-lg">{action.icon}</span>
+              <div className="text-left">
+                <div className="font-semibold">{action.label}</div>
+                <div className="text-xs opacity-80">{action.description}</div>
+              </div>
+            </div>
+            <span className="group-hover:translate-x-1 transition-transform">→</span>
           </button>
         ))}
       </div>

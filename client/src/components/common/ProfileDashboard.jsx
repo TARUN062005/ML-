@@ -7,11 +7,10 @@ import SecurityPage from "./SecurityPage.jsx";
 
 // Message Component (moved from UIComponents)
 const Message = ({ type, message }) => (
-  <div className={`p-4 rounded-lg mb-4 flex items-center ${
-    type === 'success' 
+  <div className={`p-4 rounded-lg mb-4 flex items-center ${type === 'success'
       ? 'bg-green-900 bg-opacity-50 border border-green-700 text-green-300'
       : 'bg-red-900 bg-opacity-50 border border-red-700 text-red-300'
-  }`}>
+    }`}>
     <span className="mr-2">{type === 'success' ? '✅' : '⚠️'}</span>
     {message}
   </div>
@@ -19,8 +18,8 @@ const Message = ({ type, message }) => (
 
 // Loading Screen Component
 const LoadingScreen = ({ message = "Loading..." }) => (
-  <div className="flex items-center justify-center min-h-screen bg-gray-900" style={{ 
-    background: "linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%)" 
+  <div className="flex items-center justify-center min-h-screen bg-gray-900" style={{
+    background: "linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%)"
   }}>
     <div className="text-center">
       <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
@@ -32,7 +31,7 @@ const LoadingScreen = ({ message = "Loading..." }) => (
 const ProfileDashboard = () => {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
-  
+
   const [activeTab, setActiveTab] = useState("welcome");
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [message, setMessage] = useState("");
@@ -41,11 +40,11 @@ const ProfileDashboard = () => {
 
   // Check if profile needs completion (first-time setup)
   const needsProfileCompletion = user?.firstLogin && !user?.profileCompleted;
-  
+
   useEffect(() => {
     if (user) {
       setLoading(false);
-      
+
       // If profile needs completion, automatically show profile setup
       if (needsProfileCompletion) {
         setActiveTab("profile");
@@ -116,17 +115,24 @@ const ProfileDashboard = () => {
         return <DashboardPage user={user} showDetection={true} />;
       case "profile":
         return (
-          <ProfilePage 
-            user={user} 
+          <ProfilePage
+            user={user}
             needsProfileCompletion={needsProfileCompletion}
             onMessage={handleMessage}
             onError={handleError}
-            onProfileComplete={() => setActiveTab("welcome")}
+            onProfileComplete={(updatedUser) => {
+              const token = localStorage.getItem("token");
+              if (token && updatedUser) {
+                const { login } = useContext(AuthContext);
+                login(updatedUser, token);
+              }
+              setActiveTab("welcome");
+            }}
           />
         );
       case "security":
         return (
-          <SecurityPage 
+          <SecurityPage
             user={user}
             onMessage={handleMessage}
             onError={handleError}
@@ -146,7 +152,7 @@ const ProfileDashboard = () => {
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
         <div className="text-center">
           <p className="text-lg text-gray-300">Astronaut not found. Please login again.</p>
-          <button 
+          <button
             onClick={handleLogout}
             className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg"
           >
@@ -180,7 +186,7 @@ const ProfileDashboard = () => {
             </div>
             <h1 className="text-2xl font-bold text-white">ExoDiscover AI</h1>
           </div>
-          
+
           {/* Navigation Tabs */}
           <div className="flex space-x-1 bg-gray-700 rounded-lg p-1">
             {[
@@ -195,11 +201,10 @@ const ProfileDashboard = () => {
                   clearMessages();
                   setActiveTab(tab.id);
                 }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all duration-300 ${
-                  activeTab === tab.id 
-                    ? "bg-blue-600 text-white shadow-lg" 
+                className={`flex items-center gap-2 px-4 py-2 rounded-md transition-all duration-300 ${activeTab === tab.id
+                    ? "bg-blue-600 text-white shadow-lg"
                     : "text-gray-300 hover:text-white hover:bg-gray-600"
-                }`}
+                  }`}
               >
                 <span>{tab.icon}</span>
                 <span>{tab.label}</span>

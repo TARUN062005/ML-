@@ -5,7 +5,9 @@ import { AuthContext } from "../../main.jsx";
 import DashboardPage from "../common/DashboardPage";
 import ProfilePage from "../common/ProfilePage";
 import SecurityPage from "../common/SecurityPage";
-import MLDashboard from "./MLDashboard.jsx";
+import TOIDashboard from "./TOIDashboard.jsx";
+import KOIDashboard from "./KOIDashboard.jsx";
+import K2Dashboard from "./K2Dashboard.jsx";
 import CustomModelDashboard from "./CustomModelDashboard.jsx";
 
 const UserDashboard = () => {
@@ -16,21 +18,9 @@ const UserDashboard = () => {
   const [error, setError] = useState("");
   const [redirecting, setRedirecting] = useState(false);
 
-  console.log('🔍 UserDashboard - Profile completion status:', {
-    needsProfileCompletion,
-    user: user ? { 
-      name: user.name, 
-      profileCompleted: user.profileCompleted 
-    } : 'No user',
-    currentPath: location.pathname
-  });
-
-  // FIXED: Better redirect logic with protection against loops
   useEffect(() => {
     if (needsProfileCompletion && user && location.pathname !== '/user/profile') {
-      console.log('🔄 Auto-redirecting to profile completion page');
       setRedirecting(true);
-      // Use setTimeout to avoid state update during render
       setTimeout(() => {
         navigate("/user/profile", { replace: true });
       }, 100);
@@ -48,16 +38,13 @@ const UserDashboard = () => {
   };
 
   const handleProfileComplete = () => {
-    console.log('✅ Profile completion triggered in UserDashboard');
     completeProfile();
     handleMessage("Profile completed successfully! Welcome to your dashboard.");
-    // Navigate to dashboard after profile completion
     setTimeout(() => {
       navigate("/user/dashboard", { replace: true });
     }, 1500);
   };
 
-  // FIXED: Show loading while checking redirect - only if we're actually redirecting
   if (redirecting && needsProfileCompletion) {
     return (
       <div style={{ 
@@ -76,12 +63,7 @@ const UserDashboard = () => {
     );
   }
 
-  // FIXED: If we're on profile page and profile needs completion, don't redirect
-  if (needsProfileCompletion && location.pathname === '/user/profile') {
-    console.log('✅ On profile page, showing profile content');
-    // Continue to show the profile page
-  } else if (needsProfileCompletion) {
-    // If we're not on profile page and profile needs completion, show loading
+  if (needsProfileCompletion && location.pathname !== '/user/profile') {
     return (
       <div style={{ 
         minHeight: "100vh", 
@@ -163,11 +145,13 @@ const UserDashboard = () => {
       {/* Main Content */}
       <div style={{ position: "relative", zIndex: 1 }}>
         <Routes>
+          {/* Redirect user root to dashboard */}
           <Route path="/" element={<Navigate to="/user/dashboard" replace />} />
-          <Route 
-            path="/dashboard" 
-            element={<DashboardPage user={user} />} 
-          />
+          
+          {/* Main Dashboard */}
+          <Route path="/dashboard" element={<DashboardPage user={user} />} />
+          
+          {/* Profile and Security */}
           <Route 
             path="/profile" 
             element={
@@ -190,11 +174,15 @@ const UserDashboard = () => {
               />
             } 
           />
-          {/* Add ML Model Routes */}
-          <Route path="/dashboard/toi" element={<MLDashboard />} />
-          <Route path="/dashboard/koi" element={<MLDashboard />} />
-          <Route path="/dashboard/k2" element={<MLDashboard />} />
+          
+          {/* Separate Model Pages - FIXED: These are now properly nested under /user/* */}
+          <Route path="/dashboard/toi" element={<TOIDashboard />} />
+          <Route path="/dashboard/koi" element={<KOIDashboard />} />
+          <Route path="/dashboard/k2" element={<K2Dashboard />} />
           <Route path="/dashboard/custom/*" element={<CustomModelDashboard />} />
+          
+          {/* Catch all for user routes */}
+          <Route path="*" element={<Navigate to="/user/dashboard" replace />} />
         </Routes>
       </div>
 

@@ -57,7 +57,7 @@ const ProfilePage = ({ user, needsProfileCompletion, onMessage, onError, onProfi
       if (needsProfileCompletion) {
         completeProfile();
         // FIXED: Removed automatic redirect - stay on profile page
-        onProfileComplete();
+        onProfileComplete(updatedUser);
       }
       
       setIsEditing(false);

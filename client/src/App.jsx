@@ -12,8 +12,6 @@ import NotFoundPage from "./components/common/NotFoundPage.jsx";
 
 // Dashboards
 import UserDashboard from "./components/user/userDashboard.jsx";
-import MLDashboard from "./components/user/MLDashboard.jsx";
-import CustomModelDashboard from "./components/user/CustomModelDashboard.jsx";
 
 const App = () => {
   const { user, needsProfileCompletion } = useContext(AuthContext);
@@ -64,7 +62,6 @@ const App = () => {
             path="/auth/:userType/:mode"
             element={
               user ? (
-                // FIXED: Redirect based on profile completion status
                 <Navigate
                   to={
                     needsProfileCompletion 
@@ -79,14 +76,9 @@ const App = () => {
             }
           />
 
-          {/* Protected: USER routes */}
+          {/* Protected: USER routes - ALL user routes handled by UserDashboard */}
           <Route element={<ProtectedRoutes allowedRoles={["USER"]} />}>
             <Route path="/user/*" element={<UserDashboard />} />
-            {/* Direct routes for ML models */}
-            <Route path="/user/dashboard/toi" element={<MLDashboard />} />
-            <Route path="/user/dashboard/koi" element={<MLDashboard />} />
-            <Route path="/user/dashboard/k2" element={<MLDashboard />} />
-            <Route path="/user/dashboard/custom/*" element={<CustomModelDashboard />} />
           </Route>
 
           {/* 404 Fallback - NASA Themed */}
