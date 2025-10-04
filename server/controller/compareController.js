@@ -3,92 +3,137 @@ const { Readable } = require('stream');
 
 // Helper function to parse a CSV buffer into an array of objects
 const parseCsv = (buffer) => {
-  return new Promise((resolve, reject) => {
-    const results = [];
-    const stream = Readable.from(buffer.toString());
-    stream
-      .pipe(csv())
-      .on('data', (data) => results.push(data))
-      .on('end', () => resolve(results))
-      .on('error', (error) => reject(error));
-  });
+    return new Promise((resolve, reject) => {
+        const results = [];
+        const stream = Readable.from(buffer.toString());
+        stream
+            .pipe(csv({
+                skipComments: true,
+                skipEmptyLines: true,
+                mapHeaders: ({ header }) => header.trim(),
+                mapValues: ({ value }) => value.trim()
+            }))
+            .on('data', (data) => results.push(data))
+            .on('end', () => resolve(results))
+            .on('error', (error) => reject(error));
+    });
 };
 
 exports.compareFiles = async (req, res) => {
-  try {
-    // 1. Check if files were uploaded
-    if (!req.files || !req.files.file1 || !req.files.file2) {
-      return res.status(400).json({ message: 'Please upload both files.' });
-    }
-
-    const file1Buffer = req.files.file1[0].buffer;
-    const file2Buffer = req.files.file2[0].buffer;
-
-    // 2. Parse both CSV files concurrently
-    const [data1, data2] = await Promise.all([
-      parseCsv(file1Buffer),
-      parseCsv(file2Buffer),
-    ]);
-
-    if (data1.length === 0 || data2.length === 0) {
-      return res.status(400).json({ message: 'One or both CSV files are empty.' });
-    }
-
-    // 3. Find common headers (fields)
-    const headers1 = Object.keys(data1[0]);
-    const headers2 = Object.keys(data2[0]);
-    const commonHeaders = headers1.filter(header => headers2.includes(header));
-
-    if (commonHeaders.length === 0) {
-      return res.status(400).json({ message: 'No common columns found between the files.' });
-    }
-
-    let totalUniqueItemsFile1 = 0;
-    let totalMatches = 0;
-    const matchedRows = [];
-    const addedRowIndices = new Set(); // Use a Set to prevent duplicate rows in the output
-
-    // 4. Compare data for each common header
-    commonHeaders.forEach(header => {
-      // Get unique values for the current header from each file
-      const uniqueValues1 = new Set(data1.map(row => row[header]?.trim()).filter(Boolean));
-      const uniqueValues2 = new Set(data2.map(row => row[header]?.trim()).filter(Boolean));
-      
-      totalUniqueItemsFile1 += uniqueValues1.size;
-
-      // Count how many items from file 1 are present in file 2
-      uniqueValues1.forEach(value => {
-        if (uniqueValues2.has(value)) {
-          totalMatches++;
+    try {
+        // 1. Check if files were uploaded
+        if (!req.files || !req.files.file1 || !req.files.file2) {
+            return res.status(400).json({ message: 'Please upload both files with field names "file1" and "file2".' });
         }
-      });
 
-      // Find and collect the actual rows from file 1 that contain matching data
-      data1.forEach((row, index) => {
-          const valueFromFile1 = row[header]?.trim();
-          // If the value exists in file 2 and we haven't already added this row
-          if (valueFromFile1 && uniqueValues2.has(valueFromFile1) && !addedRowIndices.has(index)) {
-              matchedRows.push(row);
-              addedRowIndices.add(index);
-          }
-      });
-    });
+        const file1Buffer = req.files.file1[0].buffer;
+        const file2Buffer = req.files.file2[0].buffer;
 
-    // 5. Calculate the final matching percentage
-    const percentage = totalUniqueItemsFile1 > 0 ? (totalMatches / totalUniqueItemsFile1) * 100 : 0;
+        // 2. Parse both CSV files concurrently
+        const [data1, data2] = await Promise.all([
+            parseCsv(file1Buffer),
+            parseCsv(file2Buffer),
+        ]);
 
-    // 6. Send the response including the matched data
-    res.status(200).json({
-      message: 'Comparison successful!',
-      percentage: parseFloat(percentage.toFixed(2)),
-      commonHeaders: commonHeaders,
-      totalMatches: totalMatches,
-      totalUniqueInFile1: totalUniqueItemsFile1,
-      matchedData: matchedRows, // This is the new data being sent
-    });
+        if (data1.length === 0 || data2.length === 0) {
+            return res.status(400).json({ message: 'One or both CSV files are empty.' });
+        }
 
-  } catch (error) {
-    console.error('Error during file comparison:', error);
-    res.status(500).json({ message: 'Server error during file processing.' });
-  }
+        // 3. Find a common primary key to join the files (e.g., 'id', 'toi', 'kic')
+        const headers1 = Object.keys(data1[0]);
+        const headers2 = Object.keys(data2[0]);
+        const commonIdKeys = ['id', 'ID', 'toi', 'TOI', 'tid', 'TID', 'kic', 'KIC'];
+        const primaryKey = commonIdKeys.find(key => headers1.includes(key) && headers2.includes(key));
+
+        if (!primaryKey) {
+            return res.status(400).json({ message: 'No common identifier (ID, TOI, KIC, etc.) found in the files for comparison.' });
+        }
+        
+        // 4. Create a map of file 2 for quick lookup
+        const data2Map = new Map();
+        data2.forEach(row => {
+            if (row[primaryKey]) {
+                data2Map.set(row[primaryKey], row);
+            }
+        });
+        
+        const commonHeaders = headers1.filter(header => headers2.includes(header) && header !== primaryKey);
+
+        const summary = {
+            totalItemsFile1: data1.length,
+            totalItemsFile2: data2.length,
+            totalMatches: 0,
+            matchingPercentage: 0,
+            commonHeaders: commonHeaders,
+            matchingRows: [],
+            unmatchedRows: []
+        };
+
+        const unmatchedKeys = new Set();
+        
+        // 5. Compare rows based on the primary key
+        data1.forEach(row1 => {
+            const key = row1[primaryKey];
+            const row2 = data2Map.get(key);
+            
+            if (row2) {
+                // If a matching row is found, compare the common fields
+                const rowComparison = {
+                    id: key,
+                    file1: row1,
+                    file2: row2,
+                    matches: {},
+                    mismatches: {},
+                    numMatches: 0,
+                    numMismatches: 0
+                };
+                
+                commonHeaders.forEach(header => {
+                    const value1 = String(row1[header] || '').trim();
+                    const value2 = String(row2[header] || '').trim();
+                    
+                    if (value1 === value2) {
+                        rowComparison.matches[header] = value1;
+                        rowComparison.numMatches++;
+                    } else if (value1 !== '' && value2 !== '') {
+                        rowComparison.mismatches[header] = { file1: value1, file2: value2 };
+                        rowComparison.numMismatches++;
+                    }
+                });
+                
+                // We consider a row a "match" if the ID exists in both files
+                summary.totalMatches++;
+                summary.matchingRows.push(rowComparison);
+
+            } else {
+                // No match found for this key
+                unmatchedKeys.add(key);
+            }
+        });
+
+        summary.unmatchedRows = Array.from(unmatchedKeys);
+        
+        // 6. Calculate the final matching percentage
+        const totalRowsCompared = data1.length;
+        if (totalRowsCompared > 0) {
+            summary.matchingPercentage = ((summary.totalMatches / totalRowsCompared) * 100).toFixed(2);
+        }
+        
+        // Final sanity check and data cleanup for response
+        delete summary.unmatchedKeys;
+        
+        res.status(200).json({
+            success: true,
+            message: 'File comparison complete.',
+            summary: summary
+        });
+
+    } catch (error) {
+        console.error('Error during file comparison:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Server error during file processing.',
+            error: error.message 
+        });
+    }
 };

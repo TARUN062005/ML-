@@ -2,7 +2,7 @@
 
 const express = require('express');
 const multer = require('multer');
-const compareController = require('../controllers/compareController');
+const compareController = require('../controller/compareController');
 
 const router = express.Router();
 
