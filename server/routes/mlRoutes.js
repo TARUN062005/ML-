@@ -24,14 +24,18 @@ const {
 
 const { authenticateToken } = require("../middleware/authmiddleware");
 
-// Configure multer for file uploads
+// Configure multer for file uploads - FIXED: Proper memory storage
+const storage = multer.memoryStorage();
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 100 * 1024 * 1024, // 100MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+    // Check if file is CSV
+    if (file.mimetype === 'text/csv' || 
+        file.mimetype === 'application/vnd.ms-excel' || 
+        file.originalname.toLowerCase().endsWith('.csv')) {
       cb(null, true);
     } else {
       cb(new Error('Only CSV files are allowed'), false);
@@ -64,7 +68,26 @@ router.delete("/custom-models", removeCustomModel);
 router.post("/custom-models/predict", predictCustomModel);
 
 // ----------------- File Processing -----------------
-router.post("/process-file/:modelType", upload.single('file'), processFile);
+// FIXED: Simplified upload handler
+router.post("/process-file/:modelType", upload.single('file'), (req, res, next) => {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: 'No file uploaded. Please select a CSV file.'
+    });
+  }
+  
+  // Verify file type
+  if (!req.file.originalname.toLowerCase().endsWith('.csv')) {
+    return res.status(400).json({
+      success: false,
+      message: 'Only CSV files are allowed'
+    });
+  }
+  
+  next();
+}, processFile);
+
 router.get("/file-status/:jobId", getFileStatus);
 
 // ----------------- Dashboard & Analytics -----------------

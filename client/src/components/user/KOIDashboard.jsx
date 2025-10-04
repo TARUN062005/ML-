@@ -85,20 +85,28 @@ const KOIDashboard = () => {
   const handleExport = async (format = 'csv') => {
     try {
       const response = await API.get(`/api/ml/export/koi?format=${format}`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: 300000 // 5 minutes for large files
       });
       
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `koi_predictions_${Date.now()}.${format}`);
+      
+      const extension = format === 'excel' ? 'xlsx' : 'csv';
+      link.setAttribute('download', `koi_predictions_${Date.now()}.${extension}`);
+      
       document.body.appendChild(link);
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+      
     } catch (error) {
       console.error("Export failed:", error);
-      alert("Export failed: " + error.message);
+      const errorMessage = error.message.includes('timeout') 
+          ? "The download timed out. The file may be too large or the network is slow. Please try again."
+          : (error.response?.data?.message || error.message || "An unexpected error occurred during export.");
+      alert("Export failed: " + errorMessage);
     }
   };
 
@@ -151,7 +159,7 @@ const KOIDashboard = () => {
             <PredictionTab config={config} API={API} modelInfo={modelInfo} />
           )}
           {activeTab === "bulk" && (
-            <BulkTab config={config} API={API} onResults={setBulkResults} />
+            <BulkTab config={config} API={API} onResults={setBulkResults} onExport={handleExport} />
           )}
           {activeTab === "history" && (
             <HistoryTab 
@@ -449,24 +457,35 @@ const PredictionTab = ({ config, API, modelInfo }) => {
 };
 
 // Bulk Analysis Tab for KOI
-const BulkTab = ({ config, API, onResults }) => {
+const BulkTab = ({ config, API, onResults, onExport }) => {
   const [file, setFile] = useState(null);
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState(0);
+  const [currentRow, setCurrentRow] = useState(0);
+  const [totalRows, setTotalRows] = useState(0);
   const [exporting, setExporting] = useState({ csv: false, excel: false });
 
   const handleFileUpload = (event) => {
     const selectedFile = event.target.files[0];
     if (selectedFile) {
-      if (!selectedFile.name.endsWith('.csv')) {
+      if (!selectedFile.name.toLowerCase().endsWith('.csv')) {
         setError("Please upload a CSV file");
         return;
       }
+      
+      if (selectedFile.size > 100 * 1024 * 1024) {
+        setError("File size too large. Maximum 100MB allowed.");
+        return;
+      }
+      
       setFile(selectedFile);
       setError(null);
       setResults(null);
+      setProgress(0);
+      setCurrentRow(0);
+      setTotalRows(0);
     }
   };
 
@@ -479,27 +498,26 @@ const BulkTab = ({ config, API, onResults }) => {
     setLoading(true);
     setError(null);
     setProgress(0);
+    setCurrentRow(0);
     
     try {
       const formData = new FormData();
       formData.append('file', file);
       
-      // Simulate progress
+      // Estimate total rows for progress tracking
+      const text = await file.text();
+      const estimatedRows = text.split('\n').filter(row => row.trim() && !row.startsWith('#')).length;
+      setTotalRows(estimatedRows);
+      
       const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return 90;
-          }
-          return prev + 10;
-        });
-      }, 500);
+        setProgress(prev => Math.min(prev + 1, 95));
+      }, 100);
 
       const response = await API.post("/api/ml/process-file/koi", formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
-        timeout: 30000 
+        timeout: 300000 // 5 minutes for large files
       });
 
       clearInterval(progressInterval);
@@ -509,42 +527,21 @@ const BulkTab = ({ config, API, onResults }) => {
         setResults(response.data.data);
         onResults(response.data.data);
         
-        // Auto-download results after processing
-        setTimeout(() => {
-          handleExport('csv');
-        }, 1000);
+        if (response.data.data.processed > 0) {
+          setTimeout(() => {
+            onExport('csv');
+          }, 1500);
+        }
       } else {
         throw new Error(response.data.message || "Processing failed");
       }
     } catch (error) {
       console.error("Bulk processing failed:", error);
-      setError(error.response?.data?.message || error.message || "Processing service unavailable");
+      const errorMessage = error.response?.data?.message || error.message || "Processing service unavailable";
+      setError(`Processing failed: ${errorMessage}`);
     } finally {
       setLoading(false);
       setProgress(0);
-    }
-  };
-
-  const handleExport = async (format = 'csv') => {
-    setExporting(prev => ({ ...prev, [format]: true }));
-    try {
-      const response = await API.get(`/api/ml/export/koi?format=${format}`, {
-        responseType: 'blob'
-      });
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `koi_predictions_${Date.now()}.${format}`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Export failed:", error);
-      setError("Export failed: " + (error.response?.data?.message || error.message));
-    } finally {
-      setExporting(prev => ({ ...prev, [format]: false }));
     }
   };
 
@@ -606,7 +603,8 @@ const BulkTab = ({ config, API, onResults }) => {
                     ✅ Selected: {file.name}
                   </p>
                   <p className="text-gray-400 text-xs">
-                    Size: {(file.size / 1024).toFixed(2)} KB
+                    Size: {(file.size / (1024 * 1024)).toFixed(2)} MB
+                    {totalRows > 0 && ` • Estimated: ${totalRows} rows`}
                   </p>
                 </div>
               )}
@@ -614,16 +612,25 @@ const BulkTab = ({ config, API, onResults }) => {
           </div>
 
           {loading && (
-            <div className="bg-gray-800 rounded-lg p-4">
-              <div className="flex justify-between text-sm text-gray-300 mb-2">
+            <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+              <div className="flex justify-between text-sm text-gray-300">
                 <span>Processing...</span>
                 <span>{progress}%</span>
               </div>
-              <div className="w-full bg-gray-700 rounded-full h-2">
+              <div className="w-full bg-gray-700 rounded-full h-3">
                 <div 
-                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                  className="bg-purple-500 h-3 rounded-full transition-all duration-300"
                   style={{ width: `${progress}%` }}
                 ></div>
+              </div>
+              {currentRow > 0 && totalRows > 0 && (
+                <div className="text-xs text-gray-400">
+                  Processing row {currentRow} of {totalRows} 
+                  ({Math.round((currentRow / totalRows) * 100)}%)
+                </div>
+              )}
+              <div className="text-xs text-purple-400 animate-pulse">
+                ⏳ Processing large file - this may take several minutes...
               </div>
             </div>
           )}
@@ -684,72 +691,108 @@ const BulkTab = ({ config, API, onResults }) => {
             </div>
           ) : results ? (
             <div className="space-y-4 animate-fade-in">
-              <div className="bg-gray-900 rounded-lg p-6 border border-green-500">
-                <h4 className="text-lg font-bold text-white mb-2">✅ Processing Complete</h4>
+              <div className={`bg-gray-900 rounded-lg p-6 border ${
+                results.errors > 0 ? 'border-yellow-500' : 'border-green-500'
+              }`}>
+                <h4 className="text-lg font-bold text-white mb-2">
+                  {results.errors > 0 ? '⚠️ Processing Complete with Errors' : '✅ Processing Complete'}
+                </h4>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-300">File:</span>
                     <span className="text-white font-mono">{file.name}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-300">Records Processed:</span>
-                    <span className="text-green-400 font-semibold">{results.processed || 'Multiple'}</span>
+                    <span className="text-gray-300">Total Records:</span>
+                    <span className="text-white">{results.total}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-300">Stored:</span>
-                    <span className="text-purple-400 font-semibold">{results.stored || results.processed} predictions</span>
+                    <span className="text-gray-300">Successfully Processed:</span>
+                    <span className="text-green-400 font-semibold">{results.processed}</span>
+                  </div>
+                  {results.errors > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Errors:</span>
+                      <span className="text-yellow-400 font-semibold">{results.errors}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Stored in Database:</span>
+                    <span className="text-purple-400 font-semibold">{results.stored} predictions</span>
                   </div>
                 </div>
               </div>
 
+              {results.errors > 0 && (
+                <div className="bg-yellow-900/20 rounded-lg p-4 border border-yellow-700">
+                  <h5 className="font-semibold text-yellow-400 mb-2">Processing Errors</h5>
+                  <div className="max-h-32 overflow-y-auto">
+                    {results.errorsList?.slice(0, 5).map((error, index) => (
+                      <div key={index} className="text-yellow-300 text-sm mb-1">
+                        Row {error.row}: {error.error}
+                      </div>
+                    ))}
+                    {results.errors > 5 && (
+                      <div className="text-yellow-400 text-xs">
+                        ... and {results.errors - 5} more errors
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="bg-gray-900 rounded-lg p-4">
                 <h5 className="font-semibold text-white mb-3">Download Results</h5>
                 <p className="text-gray-300 text-sm mb-3">
-                  Your predictions have been processed and stored in the database. 
-                  Download the results for further analysis.
+                  {results.processed > 0
+                    ? `Your ${results.processed} predictions have been processed and stored. Download the results for analysis.`
+                    : 'No successful predictions to download.'
+                  }
                 </p>
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => handleExport('csv')}
-                    disabled={exporting.csv}
-                    className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
-                  >
-                    {exporting.csv && (
-                      <div className="absolute inset-0 bg-purple-700 animate-pulse"></div>
-                    )}
-                    {exporting.csv ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
-                        <span className="z-10">Downloading...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="z-10">📥</span>
-                        <span className="z-10">Download CSV</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => handleExport('excel')}
-                    disabled={exporting.excel}
-                    className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
-                  >
-                    {exporting.excel && (
-                      <div className="absolute inset-0 bg-green-700 animate-pulse"></div>
-                    )}
-                    {exporting.excel ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
-                        <span className="z-10">Downloading...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="z-10">📊</span>
-                        <span className="z-10">Download Excel</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                {results.processed > 0 && (
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={() => onExport('csv')}
+                      disabled={exporting.csv}
+                      className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
+                    >
+                      {exporting.csv && (
+                        <div className="absolute inset-0 bg-purple-700 animate-pulse"></div>
+                      )}
+                      {exporting.csv ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
+                          <span className="z-10">Downloading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="z-10">📥</span>
+                          <span className="z-10">Download CSV</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => onExport('excel')}
+                      disabled={exporting.excel}
+                      className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
+                    >
+                      {exporting.excel && (
+                        <div className="absolute inset-0 bg-green-700 animate-pulse"></div>
+                      )}
+                      {exporting.excel ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
+                          <span className="z-10">Downloading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="z-10">📊</span>
+                          <span className="z-10">Download Excel</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

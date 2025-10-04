@@ -1,6 +1,11 @@
+// server/controller/mlController.js
+
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const ExcelJS = require('exceljs');
+const csv = require('csv-parser');
+const stream = require('stream');
+
 const {
   predictWithTOI,
   predictWithKOI,
@@ -8,13 +13,13 @@ const {
   trainCustomModel,
   predictWithCustomModel,
   validateData,
-  processBulkData,
   getModelInfo,
   getCustomModelInfo,
   deleteCustomModel: deleteCustomModelService,
   checkMLServices,
   storePrediction,
   generateCSVExport,
+  generateExcelExport,
   getEntriesForExport
 } = require('../utils/mlUtils');
 
@@ -197,7 +202,6 @@ const exportPredictions = async (req, res) => {
 
     console.log(`📊 Export requested for ${modelType} in ${format} format by user ${userId}`);
 
-    // Get entries with filters
     const entries = await getEntriesForExport(userId, modelType, {
       startDate,
       endDate,
@@ -214,79 +218,22 @@ const exportPredictions = async (req, res) => {
     let fileBuffer, contentType, fileName;
 
     if (format.toLowerCase() === 'excel') {
-      // Generate Excel file
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet(`${modelType.toUpperCase()} Predictions`);
-
-      // Add headers
-      worksheet.columns = [
-        { header: 'ID', key: 'id', width: 15 },
-        { header: 'Timestamp', key: 'timestamp', width: 20 },
-        { header: 'Predicted Class', key: 'predicted_class', width: 18 },
-        { header: 'Confidence', key: 'confidence', width: 12 },
-        { header: 'Orbital Period', key: 'pl_orbper', width: 15 },
-        { header: 'Transit Duration', key: 'pl_trandurh', width: 16 },
-        { header: 'Transit Depth', key: 'pl_trandep', width: 15 },
-        { header: 'Planet Radius', key: 'pl_rade', width: 15 }
-      ];
-
-      // Add data rows
-      entries.forEach((entry, index) => {
-        const inputData = entry.data?.input || {};
-        const outputData = entry.data?.output || {};
-        
-        const rowData = {
-          id: entry.id,
-          timestamp: new Date(entry.createdAt).toLocaleString(),
-          predicted_class: outputData.predicted_class || 'Unknown',
-          confidence: outputData.confidence ? (outputData.confidence * 100).toFixed(2) + '%' : 'N/A',
-          pl_orbper: inputData.pl_orbper || 'N/A',
-          pl_trandurh: inputData.pl_trandurh || 'N/A',
-          pl_trandep: inputData.pl_trandep || 'N/A',
-          pl_rade: inputData.pl_rade || 'N/A'
-        };
-
-        worksheet.addRow(rowData);
-
-        // Add styling for confidence
-        const row = worksheet.getRow(index + 2);
-        if (outputData.confidence > 0.8) {
-          row.getCell('confidence').fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FF00FF00' }
-          };
-        }
-      });
-
-      // Add header styling
-      worksheet.getRow(1).eachCell((cell) => {
-        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-        cell.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: 'FF2E86AB' }
-        };
-      });
-
+      const workbook = await generateExcelExport(modelType, entries);
       fileBuffer = await workbook.xlsx.writeBuffer();
       contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
       fileName = `${modelType}_predictions_${Date.now()}.xlsx`;
     } else {
-      // Generate CSV
-      const csvData = await generateCSVExport(userId, modelType, entries);
+      const csvData = await generateCSVExport(modelType, entries);
       fileBuffer = Buffer.from(csvData, 'utf-8');
       contentType = 'text/csv';
       fileName = `${modelType}_predictions_${Date.now()}.csv`;
     }
 
-    // Set response headers for download
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Length', fileBuffer.length);
 
     console.log(`✅ Exported ${entries.length} ${modelType} predictions as ${format}`);
-
     res.send(fileBuffer);
 
   } catch (error) {
@@ -295,6 +242,163 @@ const exportPredictions = async (req, res) => {
       success: false,
       message: 'Export failed',
       error: error.message
+    });
+  }
+};
+
+// ----------------- Updated File Processing -----------------
+const processFile = async (req, res) => {
+  try {
+    const { modelType } = req.params;
+    const userId = req.user.id;
+
+    console.log(`📁 File processing requested for ${modelType} by user ${userId}`);
+
+    if (!req.file || !req.file.buffer) {
+      console.log('No file found in request');
+      return res.status(400).json({
+        success: false,
+        message: 'No file uploaded or file is empty.'
+      });
+    }
+
+    const uploadedFile = req.file;
+
+    if (!uploadedFile.originalname.toLowerCase().endsWith('.csv')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only CSV files are supported'
+      });
+    }
+
+    console.log(`✅ Processing file: ${uploadedFile.originalname}, Size: ${(uploadedFile.size / (1024 * 1024)).toFixed(2)} MB`);
+
+    const results = [];
+    const errors = [];
+    let totalRows = 0;
+
+    const readableStream = new stream.Readable();
+    readableStream.push(uploadedFile.buffer);
+    readableStream.push(null); // End of the stream
+
+    const parserStream = readableStream.pipe(csv({
+      skipComments: true, 
+      skipEmptyLines: true,
+      mapValues: ({ header, value }) => {
+        const trimmedValue = value ? value.trim() : '';
+        if (!isNaN(trimmedValue) && trimmedValue !== '') {
+          return parseFloat(trimmedValue);
+        }
+        return trimmedValue;
+      }
+    }));
+    
+    parserStream.on('data', async (rowData) => {
+      parserStream.pause();
+      totalRows++;
+
+      try {
+        const requiredFields = ['pl_orbper', 'pl_trandurh', 'pl_trandep', 'pl_rade'];
+        const missingFields = requiredFields.filter(field => rowData[field] === undefined || rowData[field] === null || rowData[field] === '');
+        
+        if (missingFields.length > 0) {
+          errors.push({
+            row: totalRows,
+            error: `Missing required fields: ${missingFields.join(', ')}`,
+            data: rowData
+          });
+          parserStream.resume();
+          return;
+        }
+
+        let predictionResult;
+        try {
+          switch (modelType.toLowerCase()) {
+            case 'toi':
+              predictionResult = await predictWithTOI(rowData);
+              break;
+            case 'koi':
+              predictionResult = await predictWithKOI(rowData);
+              break;
+            case 'k2':
+              predictionResult = await predictWithK2(rowData);
+              break;
+            default:
+              throw new Error(`Unsupported model type: ${modelType}`);
+          }
+        } catch (predictionError) {
+          console.error(`❌ ML Service error for row ${totalRows}:`, predictionError.message);
+          errors.push({
+            row: totalRows,
+            error: `ML Service unavailable: ${predictionError.message}`,
+            data: rowData
+          });
+          parserStream.resume();
+          return;
+        }
+
+        const storedEntry = await storePrediction(userId, modelType, rowData, predictionResult);
+        results.push({
+          row: totalRows,
+          input: rowData,
+          prediction: predictionResult,
+          entryId: storedEntry.id
+        });
+
+        if (totalRows > 100 && totalRows % 100 === 0) {
+          console.log(`📊 Processing progress: ${totalRows} rows completed`);
+        }
+      } catch (rowError) {
+        console.error(`❌ Error processing row ${totalRows}:`, rowError.message);
+        errors.push({
+          row: totalRows,
+          error: `Processing failed: ${rowError.message}`,
+          data: rowData
+        });
+      }
+
+      parserStream.resume();
+    });
+
+    parserStream.on('end', () => {
+      console.log(`🎉 Bulk processing completed: ${results.length} successful, ${errors.length} errors`);
+      const responseData = {
+        processed: results.length,
+        errors: errors.length,
+        total: totalRows,
+        results: results.slice(0, 10),
+        errorsList: errors.slice(0, 10),
+        stored: results.length,
+        fileInfo: {
+          name: uploadedFile.originalname,
+          size: uploadedFile.size,
+          rowsProcessed: totalRows
+        }
+      };
+
+      res.json({
+        success: true,
+        data: responseData,
+        message: `Processed ${results.length} records successfully${errors.length > 0 ? ` with ${errors.length} errors` : ''}`
+      });
+    });
+
+    parserStream.on('error', (err) => {
+      console.error('CSV Parsing Error:', err.message);
+      res.status(500).json({
+        success: false,
+        message: 'CSV parsing failed. Please check file format.',
+        error: err.message
+      });
+    });
+    
+  } catch (error) {
+    console.error('File Processing Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'File processing failed',
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
@@ -367,7 +471,6 @@ const updateCustomModel = async (req, res) => {
     const { trainingData, parameters } = req.body;
     const userId = req.user.id;
 
-    // For custom models, updating means retraining
     if (!trainingData) {
       return res.status(400).json({
         success: false,
@@ -695,149 +798,6 @@ const deleteEntry = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete entry',
-      error: error.message
-    });
-  }
-};
-
-// ----------------- Fixed File Processing -----------------
-const processFile = async (req, res) => {
-  try {
-    const { modelType } = req.params;
-    const userId = req.user.id;
-
-    console.log(`📁 File processing requested for ${modelType} by user ${userId}`);
-
-    // Check if file exists in the request
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: 'No file uploaded. Please select a CSV file.'
-      });
-    }
-
-    const uploadedFile = req.file;
-    
-    // Validate file type
-    if (!uploadedFile.originalname.endsWith('.csv')) {
-      return res.status(400).json({
-        success: false,
-        message: 'Only CSV files are supported'
-      });
-    }
-
-    console.log(`✅ Processing file: ${uploadedFile.originalname}, Size: ${uploadedFile.size} bytes`);
-
-    // Parse CSV data
-    const csvData = uploadedFile.buffer.toString('utf8');
-    const rows = csvData.split('\n').filter(row => row.trim());
-    
-    if (rows.length < 2) {
-      return res.status(400).json({
-        success: false,
-        message: 'CSV file must contain at least a header and one data row'
-      });
-    }
-
-    const headers = rows[0].split(',').map(h => h.trim());
-    const dataRows = rows.slice(1);
-    
-    console.log(`📊 Processing ${dataRows.length} data rows with headers: ${headers.join(', ')}`);
-
-    const results = [];
-    const errors = [];
-
-    // Process each row
-    for (let i = 0; i < dataRows.length; i++) {
-      try {
-        const row = dataRows[i];
-        if (!row.trim()) continue;
-
-        const values = row.split(',').map(v => v.trim());
-        const rowData = {};
-        
-        // Create data object from CSV row
-        headers.forEach((header, index) => {
-          if (values[index] && values[index] !== '') {
-            // Convert to number if possible
-            const numValue = parseFloat(values[index]);
-            rowData[header] = isNaN(numValue) ? values[index] : numValue;
-          }
-        });
-
-        // Validate required fields for TOI model
-        const requiredFields = ['pl_orbper', 'pl_trandurh', 'pl_trandep', 'pl_rade'];
-        const missingFields = requiredFields.filter(field => !(field in rowData));
-        
-        if (missingFields.length > 0) {
-          errors.push({
-            row: i + 2,
-            error: `Missing required fields: ${missingFields.join(', ')}`,
-            data: rowData
-          });
-          continue;
-        }
-
-        // Make prediction based on model type
-        let predictionResult;
-        switch (modelType.toLowerCase()) {
-          case 'toi':
-            predictionResult = await predictWithTOI(rowData);
-            break;
-          case 'koi':
-            predictionResult = await predictWithKOI(rowData);
-            break;
-          case 'k2':
-            predictionResult = await predictWithK2(rowData);
-            break;
-          default:
-            throw new Error(`Unsupported model type: ${modelType}`);
-        }
-
-        // Store prediction in database
-        const storedEntry = await storePrediction(userId, modelType, rowData, predictionResult);
-
-        results.push({
-          row: i + 2,
-          input: rowData,
-          prediction: predictionResult,
-          entryId: storedEntry.id
-        });
-
-        console.log(`✅ Processed row ${i + 2}/${dataRows.length}`);
-
-      } catch (rowError) {
-        console.error(`❌ Error processing row ${i + 2}:`, rowError);
-        errors.push({
-          row: i + 2,
-          error: rowError.message,
-          data: dataRows[i]
-        });
-      }
-    }
-
-    const responseData = {
-      processed: results.length,
-      errors: errors.length,
-      total: dataRows.length,
-      results: results,
-      errorsList: errors,
-      stored: results.length // All successful results are stored
-    };
-
-    console.log(`🎉 Bulk processing completed: ${results.length} successful, ${errors.length} errors`);
-
-    res.json({
-      success: true,
-      data: responseData,
-      message: `Processed ${results.length} records successfully${errors.length > 0 ? ` with ${errors.length} errors` : ''}`
-    });
-
-  } catch (error) {
-    console.error('File Processing Error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'File processing failed',
       error: error.message
     });
   }
