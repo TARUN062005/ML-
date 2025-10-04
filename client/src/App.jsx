@@ -1,4 +1,3 @@
-// client/src/App.jsx
 import React, { useContext } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthContext } from "./main.jsx";
@@ -110,6 +109,24 @@ const App = () => {
             scroll-behavior: smooth;
           }
 
+          /* Custom scrollbar */
+          ::-webkit-scrollbar {
+            width: 8px;
+          }
+          
+          ::-webkit-scrollbar-track {
+            background: #1a237e;
+          }
+          
+          ::-webkit-scrollbar-thumb {
+            background: #448aff;
+            border-radius: 4px;
+          }
+          
+          ::-webkit-scrollbar-thumb:hover {
+            background: #2979ff;
+          }
+
           /* Custom utility classes for styling */
           .bg-gradient-cosmic {
             background: linear-gradient(135deg, #0a0a2a 0%, #1a237e 50%, #311b92 100%);
@@ -120,6 +137,33 @@ const App = () => {
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+          }
+
+          /* Loading animations */
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+          
+          .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+          }
+
+          /* Button hover effects */
+          .btn-hover-glow:hover {
+            box-shadow: 0 0 20px rgba(66, 153, 225, 0.5);
+            transform: translateY(-2px);
+            transition: all 0.3s ease;
+          }
+
+          /* Card hover effects */
+          .card-hover {
+            transition: all 0.3s ease;
+          }
+          
+          .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
           }
         `}
       </style>

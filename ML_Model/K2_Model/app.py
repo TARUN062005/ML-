@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import base64
+import io
+import matplotlib.pyplot as plt
+import seaborn as sns
 from preprocess import K2DataPreprocessor
 import traceback
 from dotenv import load_dotenv
@@ -145,6 +149,128 @@ def initialize_model():
 # Initialize model when app starts
 initialize_model()
 
+def generate_prediction_charts(predicted_class, confidence, probabilities, input_features):
+    """Generate charts and return as base64 images"""
+    charts = {}
+    
+    try:
+        # 1. Confidence Gauge Chart
+        plt.figure(figsize=(8, 4))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        
+        # Confidence gauge
+        ax1.barh([0], [confidence], color='skyblue', edgecolor='navy')
+        ax1.set_xlim(0, 1)
+        ax1.set_xlabel('Confidence')
+        ax1.set_title(f'Confidence: {confidence:.1%}')
+        ax1.grid(True, alpha=0.3)
+        
+        # Probability distribution
+        classes = list(probabilities.keys())
+        probs = list(probabilities.values())
+        colors = ['lightcoral' if cls != predicted_class else 'lightgreen' for cls in classes]
+        
+        ax2.bar(classes, probs, color=colors, edgecolor='black')
+        ax2.set_ylabel('Probability')
+        ax2.set_title('Class Probabilities')
+        ax2.tick_params(axis='x', rotation=45)
+        plt.tight_layout()
+        
+        # Convert to base64
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        charts['confidence_chart'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+        plt.close()
+        
+        # 2. Feature Importance (simulated)
+        plt.figure(figsize=(10, 6))
+        if input_features:
+            # K2-specific features
+            k2_features = ['pl_rade', 'pl_orbper', 'pl_insol', 'st_teff', 'st_rad', 'st_mass']
+            features = [f for f in k2_features if f in input_features][:6]
+            values = [input_features[f] for f in features]
+            
+            # Normalize values for better visualization
+            if values:
+                values_normalized = [abs(v) / max(abs(max(values)), 1) for v in values]
+                
+                plt.barh(features, values_normalized, color='lightseagreen', edgecolor='black')
+                plt.xlabel('Normalized Value')
+                plt.title('K2 Input Feature Values')
+                plt.tight_layout()
+                
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                buf.seek(0)
+                charts['feature_chart'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+                plt.close()
+        
+        # 3. K2-specific planetary characteristics
+        plt.figure(figsize=(8, 6))
+        if 'pl_rade' in input_features and 'pl_orbper' in input_features:
+            radius = input_features['pl_rade']
+            period = input_features['pl_orbper']
+            
+            # Create a scatter plot representation
+            sizes = [100]  # Single point
+            colors_scatter = ['red' if predicted_class == 'FALSE POSITIVE' else 
+                            'orange' if predicted_class == 'CANDIDATE' else 
+                            'green']
+            
+            plt.scatter([period], [radius], s=300, c=colors_scatter, alpha=0.7, edgecolors='black')
+            plt.xlabel('Orbital Period (days)')
+            plt.ylabel('Planetary Radius (Earth radii)')
+            plt.title('K2 Planetary Characteristics')
+            plt.grid(True, alpha=0.3)
+            
+            # Add classification regions
+            plt.axhline(y=20, color='red', linestyle='--', alpha=0.5, label='Gas Giant')
+            plt.axhline(y=2, color='blue', linestyle='--', alpha=0.5, label='Rocky Planet')
+            
+            plt.legend()
+            plt.tight_layout()
+            
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            charts['planetary_chart'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+            plt.close()
+        
+        # 4. Stellar properties chart
+        plt.figure(figsize=(8, 6))
+        stellar_features = {}
+        if 'st_teff' in input_features:
+            stellar_features['Temperature'] = input_features['st_teff']
+        if 'st_rad' in input_features:
+            stellar_features['Radius'] = input_features['st_rad']
+        if 'st_mass' in input_features:
+            stellar_features['Mass'] = input_features['st_mass']
+        
+        if stellar_features:
+            features = list(stellar_features.keys())
+            values = list(stellar_features.values())
+            
+            # Normalize for better visualization
+            if values:
+                values_normalized = [v / max(values) for v in values]
+                
+                plt.bar(features, values_normalized, color=['red', 'orange', 'yellow'], edgecolor='black')
+                plt.ylabel('Normalized Value')
+                plt.title('Stellar Properties (Normalized)')
+                plt.tight_layout()
+                
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+                buf.seek(0)
+                charts['stellar_chart'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+                plt.close()
+        
+    except Exception as e:
+        print(f"Chart generation error: {e}")
+    
+    return charts
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -236,6 +362,7 @@ def predict():
             return jsonify({'error': 'Invalid data format. Expected object or array.'}), 400
         
         predictions = []
+        charts = None
         
         for sample in samples:
             try:
@@ -258,23 +385,35 @@ def predict():
                 # Create explanation
                 explanation = get_k2_prediction_explanation(class_name, confidence, sample)
                 
-                predictions.append({
+                prediction_data = {
                     'predicted_class': class_name,
                     'confidence': confidence,
                     'probabilities': class_probabilities,
                     'explanation': explanation,
-                    'input_features': sample
-                })
+                    'input_features': sample,
+                    'timestamp': pd.Timestamp.now().isoformat()
+                }
+                
+                # Generate charts only for single prediction
+                if not is_batch:
+                    charts = generate_prediction_charts(class_name, confidence, class_probabilities, sample)
+                    prediction_data['charts'] = charts
+                
+                predictions.append(prediction_data)
                 
             except Exception as e:
                 predictions.append({
                     'error': str(e),
-                    'input_features': sample
+                    'input_features': sample,
+                    'timestamp': pd.Timestamp.now().isoformat()
                 })
         
         response_data = {
             'success': True,
-            'predictions': predictions
+            'predictions': predictions,
+            'is_batch': is_batch,
+            'total_predictions': len(predictions),
+            'model_type': 'K2'
         }
         
         if not is_batch:
@@ -347,6 +486,13 @@ def get_k2_prediction_explanation(predicted_class, confidence, input_features):
             insights.append("Hot host star.")
         elif teff < 4000:
             insights.append("Cool host star (M-dwarf).")
+    
+    if 'pl_bmasse' in input_features and input_features['pl_bmasse']:
+        mass = input_features['pl_bmasse']
+        if mass > 100:
+            insights.append("High planetary mass suggests gas giant.")
+        elif mass < 10:
+            insights.append("Low planetary mass suggests potentially terrestrial planet.")
     
     if insights:
         feature_insight = " Feature insights: " + " ".join(insights)

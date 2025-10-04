@@ -4,6 +4,12 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import base64
+import io
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+import seaborn as sns
 from preprocess import TOIDataPreprocessor
 import traceback
 from dotenv import load_dotenv
@@ -65,7 +71,7 @@ class TOIModel:
                 ('lr', lr)
             ],
             voting='soft',
-            weights=[3, 2, 1]  # Give more weight to XGBoost
+            weights=[3, 2, 1]
         )
         
     def train(self, X, y):
@@ -144,6 +150,65 @@ def initialize_model():
 
 # Initialize model when app starts
 initialize_model()
+
+def generate_prediction_charts(predicted_class, confidence, probabilities, input_features):
+    """Generate charts and return as base64 images"""
+    charts = {}
+    
+    try:
+        # 1. Confidence Gauge Chart
+        plt.figure(figsize=(8, 4))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        
+        # Confidence gauge
+        ax1.barh([0], [confidence], color='skyblue', edgecolor='navy')
+        ax1.set_xlim(0, 1)
+        ax1.set_xlabel('Confidence')
+        ax1.set_title(f'Confidence: {confidence:.1%}')
+        ax1.grid(True, alpha=0.3)
+        
+        # Probability distribution
+        classes = list(probabilities.keys())
+        probs = list(probabilities.values())
+        colors = ['lightcoral' if cls != predicted_class else 'lightgreen' for cls in classes]
+        
+        ax2.bar(classes, probs, color=colors, edgecolor='black')
+        ax2.set_ylabel('Probability')
+        ax2.set_title('Class Probabilities')
+        ax2.tick_params(axis='x', rotation=45)
+        plt.tight_layout()
+        
+        # Convert to base64
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+        buf.seek(0)
+        charts['confidence_chart'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+        plt.close()
+        
+        # 2. Feature Importance (simulated)
+        plt.figure(figsize=(10, 6))
+        if input_features:
+            features = list(input_features.keys())[:8]  # Top 8 features
+            values = list(input_features.values())[:8]
+            
+            # Normalize values for better visualization
+            values_normalized = [abs(v) / max(abs(max(values)), 1) for v in values]
+            
+            plt.barh(features, values_normalized, color='lightseagreen', edgecolor='black')
+            plt.xlabel('Normalized Value')
+            plt.title('Input Feature Values')
+            plt.tight_layout()
+            
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            charts['feature_chart'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+            plt.close()
+        
+    except Exception as e:
+        print(f"Chart generation error: {e}")
+    
+    return charts
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -235,6 +300,7 @@ def predict():
             return jsonify({'error': 'Invalid data format. Expected object or array.'}), 400
         
         predictions = []
+        charts = None
         
         for sample in samples:
             try:
@@ -257,23 +323,35 @@ def predict():
                 # Create explanation
                 explanation = get_prediction_explanation(class_name, confidence, sample)
                 
-                predictions.append({
+                prediction_data = {
                     'predicted_class': class_name,
                     'confidence': confidence,
                     'probabilities': class_probabilities,
                     'explanation': explanation,
-                    'input_features': sample
-                })
+                    'input_features': sample,
+                    'timestamp': pd.Timestamp.now().isoformat()
+                }
+                
+                # Generate charts only for single prediction
+                if not is_batch:
+                    charts = generate_prediction_charts(class_name, confidence, class_probabilities, sample)
+                    prediction_data['charts'] = charts
+                
+                predictions.append(prediction_data)
                 
             except Exception as e:
                 predictions.append({
                     'error': str(e),
-                    'input_features': sample
+                    'input_features': sample,
+                    'timestamp': pd.Timestamp.now().isoformat()
                 })
         
         response_data = {
             'success': True,
-            'predictions': predictions
+            'predictions': predictions,
+            'is_batch': is_batch,
+            'total_predictions': len(predictions),
+            'model_type': 'TOI'
         }
         
         if not is_batch:
@@ -299,7 +377,8 @@ def get_model_info():
         'feature_columns': preprocessor.feature_columns if preprocessor else [],
         'selected_features': preprocessor.selected_features if preprocessor else [],
         'class_names': label_encoder.classes_.tolist() if label_encoder else [],
-        'preprocessor_available': preprocessor is not None
+        'preprocessor_available': preprocessor is not None,
+        'model_type': 'TOI'
     }
     
     return jsonify(info)

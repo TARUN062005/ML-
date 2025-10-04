@@ -1,4 +1,3 @@
-// src/components/user/K2Dashboard.jsx
 import React, { useState, useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../../main.jsx";
@@ -10,11 +9,11 @@ const K2Dashboard = () => {
   const [predictions, setPredictions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modelInfo, setModelInfo] = useState(null);
+  const [bulkResults, setBulkResults] = useState(null);
 
-  // K2-specific configuration with correct K2 data
   const config = {
     name: "K2 Mission Data",
-    description: "K2 Mission extended exoplanet search",
+    description: "K2 Mission extended exoplanet search with comprehensive analysis",
     color: "orange",
     icon: "🚀",
     features: [
@@ -64,7 +63,6 @@ const K2Dashboard = () => {
       setModelInfo(response.data.data);
     } catch (error) {
       console.error("Failed to fetch K2 model info:", error);
-      // Set default info based on actual K2 model
       setModelInfo({
         model_type: "Ensemble Classifier",
         is_trained: true,
@@ -78,13 +76,33 @@ const K2Dashboard = () => {
   const fetchPredictionHistory = async () => {
     try {
       setLoading(true);
-      const response = await API.get("/api/ml/entries/k2?limit=5");
+      const response = await API.get("/api/ml/entries/k2?limit=20");
       setPredictions(response.data.data.entries || []);
     } catch (error) {
       console.error("Failed to fetch K2 prediction history:", error);
       setPredictions([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleExport = async (format = 'csv') => {
+    try {
+      const response = await API.get(`/api/ml/export/k2?format=${format}`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `k2_predictions_${Date.now()}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export failed:", error);
+      alert("Export failed: " + error.message);
     }
   };
 
@@ -113,7 +131,7 @@ const K2Dashboard = () => {
 
         {/* Tabs */}
         <div className="flex space-x-1 bg-gray-800 rounded-lg p-1 mb-8">
-          {["predict", "history", "info"].map((tab) => (
+          {["predict", "bulk", "history", "info"].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -123,8 +141,9 @@ const K2Dashboard = () => {
                   : "text-gray-400 hover:text-white"
               }`}
             >
-              {tab === "predict" && "🔮 Make Prediction"}
-              {tab === "history" && "📊 Prediction History"} 
+              {tab === "predict" && "🔮 Single Prediction"}
+              {tab === "bulk" && "📁 Bulk Analysis"} 
+              {tab === "history" && "📊 History"}
               {tab === "info" && "ℹ️ Model Info"}
             </button>
           ))}
@@ -135,11 +154,15 @@ const K2Dashboard = () => {
           {activeTab === "predict" && (
             <PredictionTab config={config} API={API} modelInfo={modelInfo} />
           )}
+          {activeTab === "bulk" && (
+            <BulkTab config={config} API={API} onResults={setBulkResults} />
+          )}
           {activeTab === "history" && (
             <HistoryTab 
               predictions={predictions} 
               loading={loading}
               onRefresh={fetchPredictionHistory}
+              onExport={handleExport}
             />
           )}
           {activeTab === "info" && (
@@ -151,12 +174,13 @@ const K2Dashboard = () => {
   );
 };
 
-// Prediction Tab Component for K2
+// Single Prediction Tab for K2
 const PredictionTab = ({ config, API, modelInfo }) => {
   const [predictionData, setPredictionData] = useState({});
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [predictionTime, setPredictionTime] = useState(null);
 
   const handlePredict = async () => {
     if (Object.keys(predictionData).length === 0) {
@@ -166,11 +190,16 @@ const PredictionTab = ({ config, API, modelInfo }) => {
 
     setLoading(true);
     setError(null);
+    setPredictionTime(null);
+    const startTime = Date.now();
+    
     try {
       const response = await API.post("/api/ml/predict/k2", { 
-        data: predictionData,
-        isBulk: false 
+        data: predictionData
       });
+      
+      const endTime = Date.now();
+      setPredictionTime(((endTime - startTime) / 1000).toFixed(2));
       
       if (response.data.success) {
         setResult(response.data);
@@ -194,6 +223,7 @@ const PredictionTab = ({ config, API, modelInfo }) => {
 
   const loadSampleData = () => {
     setPredictionData(config.sampleData);
+    setResult(null);
     setError(null);
   };
 
@@ -201,6 +231,7 @@ const PredictionTab = ({ config, API, modelInfo }) => {
     setPredictionData({});
     setResult(null);
     setError(null);
+    setPredictionTime(null);
   };
 
   const getClassColor = (className) => {
@@ -212,10 +243,19 @@ const PredictionTab = ({ config, API, modelInfo }) => {
     return colors[className] || 'text-white';
   };
 
+  const getClassDescription = (className) => {
+    const descriptions = {
+      'CONFIRMED': 'Confirmed Exoplanet',
+      'CANDIDATE': 'Planetary Candidate', 
+      'FALSE POSITIVE': 'False Positive'
+    };
+    return descriptions[className] || className;
+  };
+
   return (
     <div className="space-y-6">
       {error && (
-        <div className="bg-red-900/50 border border-red-700 rounded-lg p-4">
+        <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 animate-pulse">
           <p className="text-red-300">{error}</p>
         </div>
       )}
@@ -265,34 +305,59 @@ const PredictionTab = ({ config, API, modelInfo }) => {
           <button
             onClick={handlePredict}
             disabled={loading}
-            className="w-full bg-gradient-to-r from-orange-600 to-orange-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full bg-gradient-to-r from-orange-600 to-orange-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
           >
+            {loading && (
+              <div className="absolute inset-0 bg-orange-600 animate-pulse"></div>
+            )}
             {loading ? (
               <>
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                Analyzing K2 Data...
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white z-10"></div>
+                <span className="z-10">Analyzing K2 Data...</span>
               </>
             ) : (
               <>
-                <span>🔍</span>
-                Detect Exoplanets
+                <span className="z-10">🔍</span>
+                <span className="z-10">Detect Exoplanets</span>
               </>
             )}
           </button>
+
+          {loading && (
+            <div className="bg-gray-800 rounded-lg p-4">
+              <div className="flex justify-between text-sm text-gray-300 mb-2">
+                <span>Processing K2 data...</span>
+                <span className="text-orange-400">AI Analyzing</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div className="bg-orange-500 h-2 rounded-full animate-pulse"></div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Results */}
         <div>
           <h3 className="text-xl font-bold text-white mb-4">Prediction Results</h3>
-          {result ? (
-            <div className="space-y-4">
+          {loading ? (
+            <div className="space-y-4 animate-pulse">
+              <div className="bg-gray-900 rounded-lg p-6 border border-orange-500">
+                <div className="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
+                <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+              </div>
+              <div className="bg-gray-900 rounded-lg p-4">
+                <div className="h-24 bg-gray-700 rounded"></div>
+              </div>
+            </div>
+          ) : result ? (
+            <div className="space-y-4 animate-fade-in">
               <div className="bg-gray-900 rounded-lg p-6 border border-orange-500">
                 <h4 className="text-lg font-bold text-white mb-2">Detection Result</h4>
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-gray-300">Predicted Class:</span>
                     <span className={`font-bold ${getClassColor(result.data?.prediction?.predicted_class)}`}>
-                      {result.data?.prediction?.predicted_class}
+                      {getClassDescription(result.data?.prediction?.predicted_class)}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -301,11 +366,41 @@ const PredictionTab = ({ config, API, modelInfo }) => {
                       {((result.data?.prediction?.confidence || 0) * 100).toFixed(2)}%
                     </span>
                   </div>
+                  {predictionTime && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Processing Time:</span>
+                      <span className="font-bold text-green-400">
+                        {predictionTime}s
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               
+              {/* Charts Display */}
+              {result.data?.prediction?.charts && (
+                <div className="bg-gray-900 rounded-lg p-4">
+                  <h5 className="font-semibold text-white mb-3">Visual Analysis</h5>
+                  <div className="grid grid-cols-1 gap-4">
+                    {Object.entries(result.data.prediction.charts).map(([chartName, chartData]) => (
+                      <div key={chartName} className="text-center">
+                        <img 
+                          src={`data:image/png;base64,${chartData}`} 
+                          alt={chartName}
+                          className="max-w-full h-auto rounded-lg border border-gray-600"
+                        />
+                        <p className="text-gray-400 text-sm mt-2 capitalize">
+                          {chartName.replace('_', ' ')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               {result.data?.prediction?.explanation && (
                 <div className="bg-gray-900 rounded-lg p-4">
+                  <h5 className="font-semibold text-white mb-2">Scientific Explanation</h5>
                   <p className="text-gray-300 text-sm">
                     {result.data.prediction.explanation}
                   </p>
@@ -315,18 +410,26 @@ const PredictionTab = ({ config, API, modelInfo }) => {
               {/* Probabilities */}
               {result.data?.prediction?.probabilities && (
                 <div className="bg-gray-900 rounded-lg p-4">
-                  <h5 className="font-semibold text-white mb-3">Class Probabilities:</h5>
+                  <h5 className="font-semibold text-white mb-3">Class Probabilities</h5>
                   <div className="space-y-2">
                     {Object.entries(result.data.prediction.probabilities)
                       .sort(([,a], [,b]) => b - a)
                       .map(([className, probability]) => (
                         <div key={className} className="flex justify-between items-center">
                           <span className={`text-sm ${getClassColor(className)}`}>
-                            {className}
+                            {getClassDescription(className)}
                           </span>
-                          <span className="text-white font-medium">
-                            {(probability * 100).toFixed(1)}%
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <div className="w-20 bg-gray-700 rounded-full h-2">
+                              <div 
+                                className="bg-orange-500 h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${probability * 100}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-white font-medium w-12 text-right">
+                              {(probability * 100).toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
                       ))
                     }
@@ -347,56 +450,459 @@ const PredictionTab = ({ config, API, modelInfo }) => {
   );
 };
 
-// History Tab Component
-const HistoryTab = ({ predictions, loading, onRefresh }) => (
-  <div>
-    <div className="flex justify-between items-center mb-6">
-      <h3 className="text-xl font-bold text-white">K2 Prediction History</h3>
-      <button
-        onClick={onRefresh}
-        className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors"
-      >
-        Refresh
-      </button>
-    </div>
+// Bulk Analysis Tab for K2
+const BulkTab = ({ config, API, onResults }) => {
+  const [file, setFile] = useState(null);
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [exporting, setExporting] = useState({ csv: false, excel: false });
 
-    {loading ? (
-      <div className="text-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
-      </div>
-    ) : predictions.length > 0 ? (
-      <div className="space-y-4">
-        {predictions.map((prediction, index) => (
-          <div key={prediction.id} className="bg-gray-900 rounded-lg p-4 border border-gray-700">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="font-semibold text-white">K2 Prediction #{predictions.length - index}</p>
-                <p className="text-gray-400 text-sm">
-                  {new Date(prediction.createdAt).toLocaleString()}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-yellow-400 font-semibold">
-                  {prediction.data?.output?.predicted_class || "Unknown"}
-                </p>
-                <p className="text-orange-400 text-sm">
-                  {((prediction.data?.output?.confidence || 0) * 100).toFixed(1)}% confidence
-                </p>
-              </div>
+  const handleFileUpload = (event) => {
+    const selectedFile = event.target.files[0];
+    if (selectedFile) {
+      if (!selectedFile.name.endsWith('.csv')) {
+        setError("Please upload a CSV file");
+        return;
+      }
+      setFile(selectedFile);
+      setError(null);
+      setResults(null);
+    }
+  };
+
+  const processBulkFile = async () => {
+    if (!file) {
+      setError("Please select a CSV file first");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setProgress(0);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 500);
+
+      const response = await API.post("/api/ml/process-file/k2", formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 30000 
+      });
+
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      if (response.data.success) {
+        setResults(response.data.data);
+        onResults(response.data.data);
+        
+        // Auto-download results after processing
+        setTimeout(() => {
+          handleExport('csv');
+        }, 1000);
+      } else {
+        throw new Error(response.data.message || "Processing failed");
+      }
+    } catch (error) {
+      console.error("Bulk processing failed:", error);
+      setError(error.response?.data?.message || error.message || "Processing service unavailable");
+    } finally {
+      setLoading(false);
+      setProgress(0);
+    }
+  };
+
+  const handleExport = async (format = 'csv') => {
+    setExporting(prev => ({ ...prev, [format]: true }));
+    try {
+      const response = await API.get(`/api/ml/export/k2?format=${format}`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `k2_predictions_${Date.now()}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Export failed:", error);
+      setError("Export failed: " + (error.response?.data?.message || error.message));
+    } finally {
+      setExporting(prev => ({ ...prev, [format]: false }));
+    }
+  };
+
+  const downloadTemplate = () => {
+    const headers = config.features.map(f => f.name).join(',');
+    const sampleRow = config.features.map(f => config.sampleData[f.name]).join(',');
+    const csvContent = `${headers}\n${sampleRow}`;
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'k2_bulk_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* File Upload */}
+        <div className="space-y-4">
+          <h3 className="text-xl font-bold text-white">Bulk K2 Data Analysis</h3>
+          
+          <div className={`bg-gray-900/50 rounded-lg p-6 border-2 border-dashed transition-all ${
+            file ? 'border-green-500 bg-green-900/20' : 'border-gray-600 hover:border-orange-500'
+          }`}>
+            <div className="text-center">
+              <div className="text-4xl mb-4">📁</div>
+              <p className="text-gray-300 mb-2">Upload CSV File</p>
+              <p className="text-gray-400 text-sm mb-4">
+                File should contain columns: {config.features.map(f => f.name).join(', ')}
+              </p>
+              
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileUpload}
+                className="hidden"
+                id="bulk-file-input-k2"
+                disabled={loading}
+              />
+              <label
+                htmlFor="bulk-file-input-k2"
+                className={`inline-block px-6 py-3 rounded-lg cursor-pointer transition-all ${
+                  loading 
+                    ? 'bg-gray-600 cursor-not-allowed opacity-50' 
+                    : 'bg-orange-600 hover:bg-orange-700'
+                } text-white font-semibold`}
+              >
+                {loading ? 'Processing...' : 'Choose File'}
+              </label>
+              
+              {file && (
+                <div className="mt-3 p-2 bg-gray-800 rounded">
+                  <p className="text-green-400 text-sm">
+                    ✅ Selected: {file.name}
+                  </p>
+                  <p className="text-gray-400 text-xs">
+                    Size: {(file.size / 1024).toFixed(2)} KB
+                  </p>
+                </div>
+              )}
             </div>
           </div>
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-12 text-gray-400">
-        <div className="text-6xl mb-4">📊</div>
-        <p>No K2 prediction history yet</p>
-      </div>
-    )}
-  </div>
-);
 
-// Info Tab Component
+          {loading && (
+            <div className="bg-gray-800 rounded-lg p-4">
+              <div className="flex justify-between text-sm text-gray-300 mb-2">
+                <span>Processing...</span>
+                <span>{progress}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-orange-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${progress}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex space-x-3">
+            <button
+              onClick={processBulkFile}
+              disabled={!file || loading}
+              className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 relative overflow-hidden"
+            >
+              {loading && (
+                <div className="absolute inset-0 bg-green-600 animate-pulse"></div>
+              )}
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white z-10"></div>
+                  <span className="z-10">Processing...</span>
+                </>
+              ) : (
+                <>
+                  <span className="z-10">🚀</span>
+                  <span className="z-10">Process File</span>
+                </>
+              )}
+            </button>
+            
+            <button
+              onClick={downloadTemplate}
+              disabled={loading}
+              className="px-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              📋 Template
+            </button>
+          </div>
+
+          {error && (
+            <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 animate-pulse">
+              <div className="flex items-center">
+                <span className="text-red-400 text-lg mr-2">⚠️</span>
+                <p className="text-red-300">{error}</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Results */}
+        <div>
+          <h3 className="text-xl font-bold text-white mb-4">Bulk Results</h3>
+          {loading ? (
+            <div className="space-y-4 animate-pulse">
+              <div className="bg-gray-900 rounded-lg p-6 border border-gray-700">
+                <div className="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
+                <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+              </div>
+              <div className="bg-gray-900 rounded-lg p-4">
+                <div className="h-24 bg-gray-700 rounded"></div>
+              </div>
+            </div>
+          ) : results ? (
+            <div className="space-y-4 animate-fade-in">
+              <div className="bg-gray-900 rounded-lg p-6 border border-green-500">
+                <h4 className="text-lg font-bold text-white mb-2">✅ Processing Complete</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">File:</span>
+                    <span className="text-white font-mono">{file.name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Records Processed:</span>
+                    <span className="text-green-400 font-semibold">{results.processed || 'Multiple'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-300">Stored:</span>
+                    <span className="text-orange-400 font-semibold">{results.stored || results.processed} predictions</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-gray-900 rounded-lg p-4">
+                <h5 className="font-semibold text-white mb-3">Download Results</h5>
+                <p className="text-gray-300 text-sm mb-3">
+                  Your predictions have been processed and stored in the database. 
+                  Download the results for further analysis.
+                </p>
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => handleExport('csv')}
+                    disabled={exporting.csv}
+                    className="flex-1 bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
+                  >
+                    {exporting.csv && (
+                      <div className="absolute inset-0 bg-orange-700 animate-pulse"></div>
+                    )}
+                    {exporting.csv ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
+                        <span className="z-10">Downloading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="z-10">📥</span>
+                        <span className="z-10">Download CSV</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleExport('excel')}
+                    disabled={exporting.excel}
+                    className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2 relative overflow-hidden"
+                  >
+                    {exporting.excel && (
+                      <div className="absolute inset-0 bg-green-700 animate-pulse"></div>
+                    )}
+                    {exporting.excel ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
+                        <span className="z-10">Downloading...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="z-10">📊</span>
+                        <span className="z-10">Download Excel</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-gray-400">
+              <div className="text-6xl mb-4">📈</div>
+              <p>Upload a CSV file to process multiple K2 observations</p>
+              <p className="text-sm mt-2">Batch processing with automatic storage</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// History Tab with Export for K2
+const HistoryTab = ({ predictions, loading, onRefresh, onExport }) => {
+  const [exporting, setExporting] = useState({ csv: false, excel: false });
+
+  const handleExportWithAnimation = async (format) => {
+    setExporting(prev => ({ ...prev, [format]: true }));
+    try {
+      await onExport(format);
+    } finally {
+      setTimeout(() => {
+        setExporting(prev => ({ ...prev, [format]: false }));
+      }, 1000);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xl font-bold text-white">K2 Prediction History</h3>
+        <div className="flex space-x-3">
+          <button
+            onClick={() => handleExportWithAnimation('csv')}
+            disabled={exporting.csv}
+            className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 flex items-center gap-2 relative overflow-hidden"
+          >
+            {exporting.csv && (
+              <div className="absolute inset-0 bg-orange-700 animate-pulse"></div>
+            )}
+            {exporting.csv ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
+                <span className="z-10">Downloading...</span>
+              </>
+            ) : (
+              <>
+                <span className="z-10">📥</span>
+                <span className="z-10">CSV</span>
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => handleExportWithAnimation('excel')}
+            disabled={exporting.excel}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center gap-2 relative overflow-hidden"
+          >
+            {exporting.excel && (
+              <div className="absolute inset-0 bg-green-700 animate-pulse"></div>
+            )}
+            {exporting.excel ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white z-10"></div>
+                <span className="z-10">Downloading...</span>
+              </>
+            ) : (
+              <>
+                <span className="z-10">📊</span>
+                <span className="z-10">Excel</span>
+              </>
+            )}
+          </button>
+          <button
+            onClick={onRefresh}
+            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
+          >
+            <span>🔄</span>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+          <p className="text-gray-400 mt-2">Loading prediction history...</p>
+        </div>
+      ) : predictions.length > 0 ? (
+        <div className="space-y-4">
+          {predictions.map((prediction, index) => (
+            <div key={prediction.id} className="bg-gray-900 rounded-lg p-4 border border-gray-700 hover:border-orange-500 transition-colors">
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <p className="font-semibold text-white">K2 Prediction #{predictions.length - index}</p>
+                  <p className="text-gray-400 text-sm">
+                    {new Date(prediction.createdAt).toLocaleString()}
+                  </p>
+                  
+                  {prediction.data?.input && (
+                    <div className="mt-2">
+                      <p className="text-gray-400 text-xs">Features:</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {Object.entries(prediction.data.input).slice(0, 3).map(([key, value]) => (
+                          <span key={key} className="text-xs bg-gray-800 px-2 py-1 rounded">
+                            {key}: {typeof value === 'number' ? value.toFixed(2) : value}
+                          </span>
+                        ))}
+                        {Object.keys(prediction.data.input).length > 3 && (
+                          <span className="text-xs bg-gray-800 px-2 py-1 rounded">
+                            +{Object.keys(prediction.data.input).length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="text-right ml-4">
+                  <p className={`font-semibold ${
+                    prediction.data?.output?.predicted_class === 'CONFIRMED' ? 'text-green-400' :
+                    prediction.data?.output?.predicted_class === 'CANDIDATE' ? 'text-yellow-400' :
+                    'text-red-400'
+                  }`}>
+                    {prediction.data?.output?.predicted_class || "Unknown"}
+                  </p>
+                  <p className="text-orange-400 text-sm">
+                    {((prediction.data?.output?.confidence || 0) * 100).toFixed(1)}% confidence
+                  </p>
+                  {prediction.data?.metadata?.has_charts && (
+                    <p className="text-green-400 text-xs mt-1">📊 Charts Available</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12 text-gray-400">
+          <div className="text-6xl mb-4">📊</div>
+          <p>No K2 prediction history yet</p>
+          <p className="text-sm mt-2">Make your first prediction to see it here</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Info Tab Component for K2
 const InfoTab = ({ config, modelInfo }) => (
   <div className="space-y-6">
     <h3 className="text-xl font-bold text-white">K2 Model Information</h3>
@@ -428,9 +934,15 @@ const InfoTab = ({ config, modelInfo }) => (
         <h4 className="font-semibold text-white mb-2">K2 Features Used</h4>
         <div className="text-sm text-gray-300 max-h-32 overflow-y-auto">
           {modelInfo?.selected_features?.map((feature, index) => (
-            <div key={index} className="mb-1">• {feature}</div>
+            <div key={index} className="mb-1 flex items-center">
+              <span className="w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
+              {feature}
+            </div>
           )) || config.features.slice(0, 6).map((feature, index) => (
-            <div key={index} className="mb-1">• {feature.name}</div>
+            <div key={index} className="mb-1 flex items-center">
+              <span className="w-2 h-2 bg-orange-500 rounded-full mr-2"></span>
+              {feature.name}
+            </div>
           ))}
         </div>
       </div>
@@ -441,8 +953,30 @@ const InfoTab = ({ config, modelInfo }) => (
       <p className="text-orange-300 text-sm">
         The K2 mission was an extension of the Kepler Mission that continued the search for exoplanets 
         while studying young stars, supernovae, and other astronomical phenomena across multiple fields 
-        along the ecliptic plane. K2 discovered over 500 exoplanet candidates.
+        along the ecliptic plane. K2 discovered over 500 exoplanet candidates and provided valuable data
+        for various astrophysical studies beyond exoplanet detection.
       </p>
+    </div>
+
+    <div className="bg-gray-900 rounded-lg p-4">
+      <h4 className="font-semibold text-white mb-3">Class Descriptions</h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+        <div className="flex items-center">
+          <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+          <span className="text-gray-300">CONFIRMED:</span>
+          <span className="text-gray-400 ml-2">Validated exoplanet</span>
+        </div>
+        <div className="flex items-center">
+          <span className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
+          <span className="text-gray-300">CANDIDATE:</span>
+          <span className="text-gray-400 ml-2">Potential exoplanet</span>
+        </div>
+        <div className="flex items-center">
+          <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+          <span className="text-gray-300">FALSE POSITIVE:</span>
+          <span className="text-gray-400 ml-2">Not a planet</span>
+        </div>
+      </div>
     </div>
   </div>
 );

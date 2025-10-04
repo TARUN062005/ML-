@@ -1,281 +1,296 @@
-// src/components/common/DashboardPage.jsx
 import React, { useState, useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "../../main.jsx";
 
-const DashboardPage = ({ user, showDetection = false }) => {
-  const { API } = useContext(AuthContext);
+const DashboardPage = ({ user }) => {
   const navigate = useNavigate();
-  const [dashboardStats, setDashboardStats] = useState(null);
+  const { API } = useContext(AuthContext);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [recentPredictions, setRecentPredictions] = useState([]);
+
+  const missionCards = [
+    {
+      id: "toi",
+      title: "TESS Objects of Interest",
+      description: "Analyze TESS Mission data for exoplanet detection",
+      icon: "🪐",
+      color: "from-blue-500 to-cyan-500",
+      route: "/user/dashboard/toi",
+      features: ["Single Prediction", "Bulk Analysis", "Real-time Charts"]
+    },
+    {
+      id: "koi", 
+      title: "Kepler Objects of Interest",
+      description: "Process Kepler Mission candidate data",
+      icon: "🌟",
+      color: "from-purple-500 to-pink-500",
+      route: "/user/dashboard/koi",
+      features: ["Advanced Classification", "Probability Charts", "Export Data"]
+    },
+    {
+      id: "k2",
+      title: "K2 Mission Data", 
+      description: "Extended Kepler mission exoplanet search",
+      icon: "🚀",
+      color: "from-orange-500 to-red-500",
+      route: "/user/dashboard/k2",
+      features: ["Multi-field Analysis", "Visual Reports", "Batch Processing"]
+    },
+    {
+      id: "custom",
+      title: "Custom Models",
+      description: "Train and use your own ML models",
+      icon: "🧠",
+      color: "from-green-500 to-emerald-500",
+      route: "/user/dashboard/custom",
+      features: ["Model Training", "Custom Datasets", "Personal Models"]
+    }
+  ];
 
   useEffect(() => {
-    fetchDashboardStats();
-    
-    const handleStorageChange = () => {
-      fetchDashboardStats();
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    fetchDashboardData();
   }, []);
 
-  const fetchDashboardStats = async () => {
+  const fetchDashboardData = async () => {
     try {
-      const response = await API.get("/api/ml/dashboard");
-      setDashboardStats(response.data.data);
+      setLoading(true);
+      const [statsResponse, recentResponse] = await Promise.all([
+        API.get("/api/ml/dashboard"),
+        API.get("/api/ml/entries/toi?limit=3")
+      ]);
+      
+      setStats(statsResponse.data.data);
+      setRecentPredictions(recentResponse.data.data.entries || []);
     } catch (error) {
-      console.error("Failed to fetch dashboard stats:", error);
-      setDashboardStats({
-        counts: {
-          toi: 0,
-          koi: 0,
-          k2: 0,
-          customModels: 0
-        },
-        recentPredictions: []
+      console.error("Failed to fetch dashboard data:", error);
+      // Set default stats
+      setStats({
+        counts: { toi: 0, koi: 0, k2: 0, customModels: 0, total: 0 },
+        summary: { totalPredictions: 0, averageConfidence: 0 }
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleNavigation = (path) => {
-    navigate(path);
+  const getServiceStatus = (service) => {
+    return stats?.services?.[service]?.status === 'healthy' ? '🟢' : '🔴';
   };
 
   if (loading) {
-    return <DashboardLoading />;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+              <p className="text-gray-400">Loading mission control...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white p-6">
-      {/* Animated Stars Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        {[...Array(50)].map((_, i) => (
-          <div
-            key={i}
-            className="absolute bg-white rounded-full animate-twinkle"
-            style={{
-              width: Math.random() * 3 + 1 + 'px',
-              height: Math.random() * 3 + 1 + 'px',
-              top: Math.random() * 100 + 'vh',
-              left: Math.random() * 100 + 'vw',
-              animationDelay: Math.random() * 5 + 's',
-              opacity: Math.random() * 0.7 + 0.3
-            }}
-          />
-        ))}
-      </div>
-
-      <div className="relative z-10 max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 via-purple-500 to-cyan-400 bg-clip-text text-transparent">
-            NASA Exoplanet Discovery Platform
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            Mission Control Center
           </h1>
-          <p className="text-xl text-gray-300">
+          <p className="text-gray-400 mt-2">
             Welcome back, {user?.name || "Astronomer"}! Ready to explore the cosmos?
           </p>
         </div>
 
         {/* Stats Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          <StatCard
-            icon="🪐"
-            title="TOI Predictions"
-            value={dashboardStats?.counts?.toi || 0}
-            color="from-blue-500 to-cyan-500"
-          />
-          <StatCard
-            icon="🌟"
-            title="KOI Predictions"
-            value={dashboardStats?.counts?.koi || 0}
-            color="from-purple-500 to-pink-500"
-          />
-          <StatCard
-            icon="🚀"
-            title="K2 Predictions"
-            value={dashboardStats?.counts?.k2 || 0}
-            color="from-orange-500 to-red-500"
-          />
-          <StatCard
-            icon="🔧"
-            title="Custom Models"
-            value={dashboardStats?.counts?.customModels || 0}
-            color="from-green-500 to-emerald-500"
-          />
-        </div>
-
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
-          <QuickActionCard
-            title="Exoplanet Detection"
-            description="Use pre-trained NASA models to detect exoplanets"
-            icon="🔭"
-            color="blue"
-            actions={[
-              { 
-                label: "TOI Model", 
-                path: "/user/dashboard/toi", 
-                icon: "🪐", 
-                description: "TOI Mission Data" 
-              },
-              { 
-                label: "KOI Model", 
-                path: "/user/dashboard/koi", 
-                icon: "🌟", 
-                description: "Kepler Mission Data" 
-              },
-              { 
-                label: "K2 Model", 
-                path: "/user/dashboard/k2", 
-                icon: "🚀", 
-                description: "K2 Mission Data" 
-              }
-            ]}
-            onNavigate={handleNavigation}
-          />
-          <QuickActionCard
-            title="Custom Models"
-            description="Train and use your own ML models"
-            icon="🧠"
-            color="purple"
-            actions={[
-              { 
-                label: "Train Model", 
-                path: "/user/dashboard/custom/train", 
-                icon: "⚡", 
-                description: "Train new model" 
-              },
-              { 
-                label: "My Models", 
-                path: "/user/dashboard/custom/models", 
-                icon: "📊", 
-                description: "View your models" 
-              }
-            ]}
-            onNavigate={handleNavigation}
-          />
-        </div>
-
-        {/* Recent Activity */}
-        <RecentActivity predictions={dashboardStats?.recentPredictions} />
-      </div>
-
-      <style>{`
-        @keyframes twinkle {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 1; }
-        }
-        .animate-twinkle {
-          animation: twinkle 3s infinite;
-        }
-      `}</style>
-    </div>
-  );
-};
-
-// Stat Card Component
-const StatCard = ({ icon, title, value, color }) => (
-  <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 hover:border-gray-500 transition-all duration-300 hover:transform hover:-translate-y-2">
-    <div className="flex items-center justify-between">
-      <div>
-        <p className="text-gray-400 text-sm mb-2">{title}</p>
-        <p className="text-3xl font-bold">{value}</p>
-      </div>
-      <div className={`text-3xl bg-gradient-to-r ${color} bg-clip-text text-transparent`}>
-        {icon}
-      </div>
-    </div>
-  </div>
-);
-
-// Quick Action Card Component
-const QuickActionCard = ({ title, description, icon, color, actions, onNavigate }) => {
-  const colorClasses = {
-    blue: "from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800",
-    purple: "from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800",
-    green: "from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-  };
-
-  return (
-    <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
-      <div className="flex items-start justify-between mb-4">
-        <div>
-          <h3 className="text-xl font-bold text-white mb-2">{title}</h3>
-          <p className="text-gray-400">{description}</p>
-        </div>
-        <div className="text-3xl">{icon}</div>
-      </div>
-      <div className="space-y-2">
-        {actions.map((action, index) => (
-          <button
-            key={index}
-            onClick={() => onNavigate(action.path)}
-            className={`w-full bg-gradient-to-r ${colorClasses[color]} text-white py-3 px-4 rounded-lg font-semibold hover:shadow-lg transition-all duration-300 text-left flex items-center justify-between group`}
-          >
-            <div className="flex items-center space-x-3">
-              <span className="text-lg">{action.icon}</span>
-              <div className="text-left">
-                <div className="font-semibold">{action.label}</div>
-                <div className="text-xs opacity-80">{action.description}</div>
-              </div>
-            </div>
-            <span className="group-hover:translate-x-1 transition-transform">→</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// Recent Activity Component
-const RecentActivity = ({ predictions }) => (
-  <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
-    <h3 className="text-xl font-bold text-white mb-4">Recent Activity</h3>
-    {predictions && predictions.length > 0 ? (
-      <div className="space-y-3">
-        {predictions.slice(0, 5).map((prediction, index) => (
-          <div key={index} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-                <span className="text-sm">🔭</span>
-              </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-white font-medium">TOI Prediction</p>
-                <p className="text-gray-400 text-sm">
-                  {new Date(prediction.createdAt).toLocaleDateString()}
+                <p className="text-gray-400 text-sm">Total Predictions</p>
+                <p className="text-2xl font-bold text-white">
+                  {stats?.counts?.total || 0}
                 </p>
               </div>
-            </div>
-            <div className="text-right">
-              <p className="text-green-400 font-medium">Completed</p>
+              <div className="text-3xl">📊</div>
             </div>
           </div>
-        ))}
-      </div>
-    ) : (
-      <div className="text-center py-8 text-gray-400">
-        <div className="text-4xl mb-2">🌌</div>
-        <p>No recent activity</p>
-        <p className="text-sm">Start by making your first prediction!</p>
-      </div>
-    )}
-  </div>
-);
 
-// Loading Component
-const DashboardLoading = () => (
-  <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
-    <div className="text-center">
-      <div className="relative">
-        <div className="w-20 h-20 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-        <div className="absolute inset-0 w-20 h-20 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" style={{animationDelay: '0.1s'}}></div>
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Avg Confidence</p>
+                <p className="text-2xl font-bold text-green-400">
+                  {((stats?.summary?.averageConfidence || 0) * 100).toFixed(1)}%
+                </p>
+              </div>
+              <div className="text-3xl">🎯</div>
+            </div>
+          </div>
+
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Active Models</p>
+                <p className="text-2xl font-bold text-yellow-400">
+                  {3 + (stats?.counts?.customModels || 0)}
+                </p>
+              </div>
+              <div className="text-3xl">🤖</div>
+            </div>
+          </div>
+
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-sm">Services Status</p>
+                <p className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>{getServiceStatus('TOI')}</span>
+                  <span>{getServiceStatus('KOI')}</span>
+                  <span>{getServiceStatus('K2')}</span>
+                </p>
+              </div>
+              <div className="text-3xl">⚡</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Mission Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {missionCards.map((mission) => (
+            <div
+              key={mission.id}
+              className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 hover:border-gray-500 transition-all duration-300 hover:transform hover:scale-105 cursor-pointer group"
+              onClick={() => navigate(mission.route)}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className={`text-4xl group-hover:scale-110 transition-transform`}>
+                  {mission.icon}
+                </div>
+                <div className="text-2xl opacity-0 group-hover:opacity-100 transition-opacity">
+                  →
+                </div>
+              </div>
+              
+              <h3 className="text-xl font-bold text-white mb-2">
+                {mission.title}
+              </h3>
+              
+              <p className="text-gray-400 text-sm mb-4">
+                {mission.description}
+              </p>
+              
+              <div className="space-y-1">
+                {mission.features.map((feature, index) => (
+                  <div key={index} className="flex items-center text-xs text-gray-400">
+                    <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                    {feature}
+                  </div>
+                ))}
+              </div>
+
+              <div className={`mt-4 text-xs px-2 py-1 rounded-full bg-gradient-to-r ${mission.color} text-white inline-block`}>
+                {stats?.counts?.[mission.id] || 0} predictions
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Recent Activity & Quick Actions */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Recent Predictions */}
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <h3 className="text-xl font-bold text-white mb-4">Recent Activity</h3>
+            {recentPredictions.length > 0 ? (
+              <div className="space-y-4">
+                {recentPredictions.map((prediction, index) => (
+                  <div key={prediction.id} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg">
+                    <div>
+                      <p className="text-white font-medium">TOI Prediction</p>
+                      <p className="text-gray-400 text-sm">
+                        {new Date(prediction.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-semibold ${
+                        prediction.data?.output?.predicted_class === 'CONFIRMED' ? 'text-green-400' :
+                        prediction.data?.output?.predicted_class === 'CANDIDATE' ? 'text-yellow-400' :
+                        'text-red-400'
+                      }`}>
+                        {prediction.data?.output?.predicted_class || 'Unknown'}
+                      </p>
+                      <p className="text-gray-400 text-sm">
+                        {((prediction.data?.output?.confidence || 0) * 100).toFixed(1)}% confidence
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-400">
+                <div className="text-4xl mb-2">🔭</div>
+                <p>No predictions yet</p>
+                <p className="text-sm">Start exploring by selecting a mission</p>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Actions */}
+          <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700">
+            <h3 className="text-xl font-bold text-white mb-4">Quick Actions</h3>
+            <div className="space-y-3">
+              <button
+                onClick={() => navigate("/user/dashboard/toi")}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                <span>🪐</span>
+                Quick TESS Analysis
+              </button>
+              
+              <button
+                onClick={() => navigate("/user/profile")}
+                className="w-full bg-gray-700 hover:bg-gray-600 text-white py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                <span>👤</span>
+                Update Profile
+              </button>
+              
+              <button
+                onClick={fetchDashboardData}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2"
+              >
+                <span>🔄</span>
+                Refresh Data
+              </button>
+            </div>
+
+            {/* System Status */}
+            <div className="mt-6 pt-4 border-t border-gray-700">
+              <h4 className="font-semibold text-white mb-3">System Status</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">ML Services:</span>
+                  <span className="text-green-400">Operational</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Database:</span>
+                  <span className="text-green-400">Connected</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Last Update:</span>
+                  <span className="text-gray-400">{new Date().toLocaleTimeString()}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <p className="text-white text-lg">Loading Mission Control...</p>
     </div>
-  </div>
-);
+  );
+};
 
 export default DashboardPage;
