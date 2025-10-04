@@ -1,4 +1,3 @@
-// src/components/user/userDashboard.jsx
 import React, { useState, useContext, useEffect } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthContext } from "../../main.jsx";
@@ -118,7 +117,8 @@ const UserDashboard = () => {
           padding: "12px 24px",
           borderRadius: "8px",
           border: "1px solid #34d399",
-          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)"
+          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
+          backdropFilter: "blur(10px)"
         }}>
           ✅ {message}
         </div>
@@ -136,7 +136,8 @@ const UserDashboard = () => {
           padding: "12px 24px",
           borderRadius: "8px",
           border: "1px solid #f87171",
-          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)"
+          boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
+          backdropFilter: "blur(10px)"
         }}>
           ❌ {error}
         </div>
@@ -175,7 +176,7 @@ const UserDashboard = () => {
             } 
           />
           
-          {/* Separate Model Pages - FIXED: These are now properly nested under /user/* */}
+          {/* Separate Model Pages */}
           <Route path="/dashboard/toi" element={<TOIDashboard />} />
           <Route path="/dashboard/koi" element={<KOIDashboard />} />
           <Route path="/dashboard/k2" element={<K2Dashboard />} />
@@ -185,6 +186,11 @@ const UserDashboard = () => {
           <Route path="*" element={<Navigate to="/user/dashboard" replace />} />
         </Routes>
       </div>
+
+      {/* 
+        AIChatbot is now handled in App.jsx and will automatically appear 
+        on all pages when user is logged in, including all UserDashboard routes
+      */}
 
       <style>
         {`

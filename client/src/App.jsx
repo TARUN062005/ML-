@@ -1,5 +1,3 @@
-// client/src/App.jsx
-
 import React, { useContext } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthContext } from "./main.jsx";
@@ -10,10 +8,11 @@ import LandingPage from "./components/common/landingPage";
 import AuthPage from "./components/common/authPage.jsx";
 import ProtectedRoutes from "./components/common/ProtectedRoutes.jsx";
 import NotFoundPage from "./components/common/NotFoundPage.jsx";
+import AIChatbot from "./components/common/AIChatbot.jsx"; // Import AIChatbot
 
 // Dashboards
 import UserDashboard from "./components/user/userDashboard.jsx";
-import Matching from './components/common/matching.jsx'; // Import the new component
+import Matching from './components/common/matching.jsx';
 
 const App = () => {
     const { user, needsProfileCompletion } = useContext(AuthContext);
@@ -81,13 +80,16 @@ const App = () => {
                     {/* Protected: USER routes - ALL user routes handled by UserDashboard */}
                     <Route element={<ProtectedRoutes allowedRoles={["USER"]} />}>
                         <Route path="/user/*" element={<UserDashboard />} />
-                        <Route path="/user/compare" element={<Matching />} /> {/* Add the new route here */}
+                        <Route path="/user/compare" element={<Matching />} />
                     </Route>
 
                     {/* 404 Fallback - NASA Themed */}
                     <Route path="*" element={<NotFoundPage />} />
                 </Routes>
             </main>
+
+            {/* AIChatbot - Only show when user is logged in */}
+            {user && <AIChatbot />}
 
             {/* Global Styles */}
             <style>
